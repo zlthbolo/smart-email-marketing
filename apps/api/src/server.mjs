@@ -16,6 +16,7 @@ import { createCampaignRouter } from './routes/campaigns.mjs';
 import { createPublicRouter } from './routes/public.mjs';
 import { createKnowledgeRouter } from './routes/knowledge.mjs';
 import { createWebhookRouter } from './routes/webhooks.mjs';
+import { createInsightRouter } from './routes/insights.mjs';
 import { createProviderResolver } from './providers/resolver.mjs';
 import { createEmailQueue } from './queue/email-queue.mjs';
 
@@ -43,6 +44,7 @@ app.use('/v1/mailboxes',createMailboxRouter({db,config,auth,providerResolver}));
 app.use('/v1/contacts',createContactRouter({db,auth}));
 app.use('/v1/campaigns',createCampaignRouter({db,auth,emailQueue,config}));
 app.use('/v1/knowledge',createKnowledgeRouter({db,auth,config}));
+app.use('/v1/insights',createInsightRouter({db,auth}));
 app.use('/v1/public',createPublicRouter({db}));
 app.use('/v1/webhooks',createWebhookRouter({db,config}));
 app.use((_req, res) => res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Route not found' } }));

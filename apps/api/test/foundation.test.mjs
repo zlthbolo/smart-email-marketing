@@ -7,6 +7,7 @@ import { HttpApiProvider } from '../src/providers/http-api.mjs';
 import { renderTemplate, sanitizeEmailHtml } from '../src/core/templates.mjs';
 import { requireEmail, requireText } from '../src/core/validation.mjs';
 import { hashPassword, verifyPassword } from '../src/core/passwords.mjs';
+import { buildOperatorActions, evaluateCampaignReadiness } from '../src/core/readiness.mjs';
 
 test('jitter is deterministic and bounded', () => {
   const input={campaignId:'c1',recipientId:'r1',maxJitterMs:120000,secret:'secret'};
@@ -33,4 +34,21 @@ test('API adapter rejects a nominal 200 without acknowledgement',async()=>{
   const provider=new HttpApiProvider({kind:'resend',apiKey:'key',fetchImpl});
   const result=await provider.send({from:'a@example.com',to:'b@example.com',subject:'Hello',html:'x',text:'x'});
   assert.equal(result.status,'rejected');
+});
+test('campaign readiness blocks false-ready campaigns',()=>{
+  const result=evaluateCampaignReadiness({mailboxStatus:'pending',eligibleRecipients:0,dailyLimit:10,sentToday:0,physicalAddress:'',senderName:'',subject:'',bounceRate:0,evidenceCount:0,targetsUniversity:true});
+  assert.equal(result.ready,false);
+  assert.deepEqual(result.blockers.map((item)=>item.code),['MAILBOX_NOT_HEALTHY','EMPTY_ELIGIBLE_AUDIENCE','COMPLIANCE_INCOMPLETE','CONTENT_INVALID']);
+});
+test('campaign readiness explains capacity and university evidence',()=>{
+  const result=evaluateCampaignReadiness({mailboxStatus:'healthy',eligibleRecipients:5,suppressedRecipients:2,dailyLimit:10,sentToday:2,physicalAddress:'Doha, Qatar',senderName:'مختار',subject:'موعد التسجيل',text:'تفاصيل موثقة',bounceRate:0.01,evidenceCount:4,targetsUniversity:true});
+  assert.equal(result.ready,true);assert.equal(result.score,100);assert.equal(result.dailyHeadroom,8);
+});
+test('campaign readiness blocks audiences that would overflow today',()=>{
+  const result=evaluateCampaignReadiness({mailboxStatus:'healthy',eligibleRecipients:25,dailyLimit:10,sentToday:2,physicalAddress:'Doha',senderName:'مختار',subject:'موعد التسجيل',bounceRate:0,evidenceCount:2,targetsUniversity:true});
+  assert.equal(result.ready,false);assert.equal(result.blockers.some((item)=>item.code==='AUDIENCE_EXCEEDS_DAILY_CAPACITY'),true);
+});
+test('operator actions always surface reputation risk first',()=>{
+  const actions=buildOperatorActions({healthyMailboxes:1,contacts:20,universities:1,completedResearch:1,highBounceCampaigns:1});
+  assert.equal(actions[0].code,'STOP_HIGH_BOUNCE');assert.equal(actions.some((item)=>item.code==='CREATE_CAMPAIGN'),true);
 });

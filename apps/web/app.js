@@ -4,7 +4,12 @@ const defaultApiUrl = isNative ? 'http://10.0.2.2:3001/v1' : `${location.protoco
 let API = localStorage.getItem('jareed_api_url') || window.JAREED_API_URL || defaultApiUrl;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { token: localStorage.getItem('jareed_token'), user: null, mailboxes: [], campaigns: [], universities: [] };
+const state = { token: localStorage.getItem('jareed_token'), user: null, mailboxes: [], campaigns: [], universities: [], insights: null };
+
+const statusLabels = { pending: 'بانتظار التحقق', healthy: 'سليم', unhealthy: 'غير سليم', disabled: 'معطّل', draft: 'مسودة', scheduled: 'مجدولة', running: 'قيد الإرسال', paused: 'متوقفة', completed: 'مكتملة', failed: 'فشلت', accepted: 'قبلها المزود', delivered: 'وصلت', opened: 'فُتحت', clicked: 'نُقر الرابط', replied: 'وصل رد', bounced: 'ارتدت', complained: 'شكوى', blocked: 'ممنوعة', queued: 'في الطابور' };
+const providerLabels = { gmail: 'جيميل', microsoft_graph: 'مايكروسوفت', smtp: 'خادم بريد', api: 'مزود إرسال', test_sink: 'اختبار محلي' };
+const statusLabel = (value) => statusLabels[value] || value || 'غير معروف';
+const providerLabel = (value) => providerLabels[value] || value || 'غير معروف';
 
 function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
@@ -28,6 +33,7 @@ async function api(path, options = {}) {
     if (response.status === 401) signOut(false);
     const error = new Error(payload.error?.message || 'تعذر إكمال العملية');
     error.code = payload.error?.code;
+    error.details = payload.error?.details;
     throw error;
   }
   return payload.data;
@@ -70,8 +76,8 @@ async function loadHealth() {
     const redis = services.redis || {};
     $('#postgresStatus').textContent = postgres.status === 'unhealthy' ? 'متعطل' : 'متصل';
     $('#redisStatus').textContent = redis.status === 'unhealthy' ? 'متعطل' : 'متصل';
-    $('#postgresDetail').textContent = postgres.latencyMs != null ? `${postgres.latencyMs}ms` : 'Backend حقيقي';
-    $('#redisDetail').textContent = redis.latencyMs != null ? `${redis.latencyMs}ms` : 'طابور حقيقي';
+    $('#postgresDetail').textContent = postgres.latencyMs != null ? `${postgres.latencyMs} مللي ثانية` : 'الخادم متصل';
+    $('#redisDetail').textContent = redis.latencyMs != null ? `${redis.latencyMs} مللي ثانية` : 'الطابور متصل';
     $('#systemDot').classList.add('healthy');
   } catch (error) {
     $('#postgresStatus').textContent = $('#redisStatus').textContent = 'غير متاح';
@@ -84,10 +90,10 @@ async function loadMailboxes() {
   $('#mailboxCount').textContent = state.mailboxes.filter((mailbox) => mailbox.status === 'healthy').length;
   $('#mailboxList').innerHTML = state.mailboxes.length ? state.mailboxes.map((mailbox) => item(
     `${mailbox.display_name || mailbox.email} — ${mailbox.email}`,
-    `${mailbox.provider} · ${mailbox.status} · ${mailbox.sent_today}/${mailbox.effective_daily_limit} اليوم${mailbox.last_error ? ` · ${mailbox.last_error}` : ''}`,
+    `${providerLabel(mailbox.provider)} · ${statusLabel(mailbox.status)} · ${mailbox.sent_today}/${mailbox.effective_daily_limit} اليوم${mailbox.last_error ? ` · ${mailbox.last_error}` : ''}`,
     `<button data-verify="${mailbox.id}">تحقق</button><button data-test="${mailbox.id}">اختبار إرسال</button><button class="danger" data-delete-mailbox="${mailbox.id}">حذف</button>`
   )).join('') : '<p class="empty">لا توجد صناديق بعد.</p>';
-  $('#campaignMailbox').innerHTML = state.mailboxes.filter((mailbox) => mailbox.status === 'healthy').map((mailbox) => `<option value="${mailbox.id}">${escapeHtml(mailbox.email)} — ${escapeHtml(mailbox.provider)}</option>`).join('');
+  $('#campaignMailbox').innerHTML = state.mailboxes.filter((mailbox) => mailbox.status === 'healthy').map((mailbox) => `<option value="${mailbox.id}">${escapeHtml(mailbox.email)} — ${escapeHtml(providerLabel(mailbox.provider))}</option>`).join('');
 }
 
 async function loadContacts() {
@@ -100,9 +106,20 @@ async function loadCampaigns() {
   $('#campaignCount').textContent = state.campaigns.length;
   $('#campaignList').innerHTML = state.campaigns.length ? state.campaigns.map((campaign) => item(
     campaign.name,
-    `${campaign.status} · ${campaign.recipients} مستلم · ${campaign.mailbox_email || 'صندوق محذوف'} · ${formatDate(campaign.scheduled_at)}`,
-    `<button data-analytics="${campaign.id}">التحليلات</button>${['draft', 'paused', 'failed'].includes(campaign.status) ? `<button class="primary" data-schedule="${campaign.id}">جدولة الآن</button>` : ''}${['scheduled', 'running'].includes(campaign.status) ? `<button data-pause="${campaign.id}">إيقاف</button>` : ''}`
+    `${statusLabel(campaign.status)} · ${campaign.recipients} مستلم · ${campaign.mailbox_email || 'صندوق محذوف'} · ${formatDate(campaign.scheduled_at)}`,
+    `<button data-preflight="${campaign.id}">فحص الجاهزية</button><button data-analytics="${campaign.id}">التحليلات</button>${['draft', 'paused', 'failed'].includes(campaign.status) ? `<button class="primary" data-schedule="${campaign.id}">إطلاق بعد الفحص</button>` : ''}${['scheduled', 'running'].includes(campaign.status) ? `<button data-pause="${campaign.id}">إيقاف</button>` : ''}`
   )).join('') : '<p class="empty">لا توجد حملات.</p>';
+}
+
+async function loadInsights() {
+  const data = await api('/insights/overview');
+  state.insights = data;
+  $('#contactCount').textContent = data.summary.contacts;
+  $('#nextActions').innerHTML = data.actions.length ? data.actions.map((action, index) => `<button class="action-card" data-action-page="${action.page}"><b>${index + 1}</b><span>${escapeHtml(action.title)}</span><i>انتقل</i></button>`).join('') : '<p class="empty">لا توجد إجراءات عاجلة.</p>';
+  $('#universityInsights').innerHTML = data.universities.length ? data.universities.map((university) => {
+    const replyRate = university.accepted ? Math.round((university.replies / university.accepted) * 100) : 0;
+    return `<article><div><strong>${escapeHtml(university.university)}</strong><small>${university.contacts} جهة · ${university.specializations} تخصص</small></div><span>${replyRate}% ردود</span></article>`;
+  }).join('') : '<p class="empty">أضف الجمهور لرؤية توزيع الجامعات.</p>';
 }
 
 async function loadKnowledge() {
@@ -126,7 +143,7 @@ async function loadOutbox() {
 }
 
 async function refreshAll() {
-  try { await Promise.all([loadHealth(), loadMailboxes(), loadContacts(), loadCampaigns(), loadKnowledge()]); }
+  try { await Promise.all([loadHealth(), loadMailboxes(), loadContacts(), loadCampaigns(), loadKnowledge(), loadInsights()]); }
   catch (error) { notice(error.message, 'error'); }
 }
 
@@ -179,9 +196,11 @@ document.addEventListener('click', async (event) => {
     if (button.dataset.test) { const to = prompt('عنوان المستلم للاختبار:'); if (to) { const result = await api(`/mailboxes/${button.dataset.test}/test`, { method: 'POST', body: { to } }); notice(result.provider === 'test_sink' ? `خُزنت محليًا فقط: ${result.providerMessageId}` : `قبل المزود الرسالة: ${result.providerMessageId}`); } }
     if (button.dataset.deleteMailbox && confirm('حذف صندوق البريد؟')) { await api(`/mailboxes/${button.dataset.deleteMailbox}`, { method: 'DELETE' }); await loadMailboxes(); }
     if (button.dataset.deleteContact && confirm('حذف جهة الاتصال؟')) { await api(`/contacts/${button.dataset.deleteContact}`, { method: 'DELETE' }); await loadContacts(); }
-    if (button.dataset.schedule) { const result = await api(`/campaigns/${button.dataset.schedule}/schedule`, { method: 'POST', body: {} }); notice(`تمت جدولة ${result.queued} رسالة.`); await loadCampaigns(); }
+    if (button.dataset.actionPage) showPage(button.dataset.actionPage);
+    if (button.dataset.preflight) { const result = await api(`/campaigns/${button.dataset.preflight}/preflight`); const rows=result.checks.map((check)=>`<li class="${check.passed?'check-ok':'check-bad'}"><b>${check.passed?'✓':'×'} ${escapeHtml(check.label)}</b><small>${escapeHtml(check.detail)}</small></li>`).join('');const blockers=result.blockers.map((item)=>`<li>${escapeHtml(item.message)}</li>`).join('');const warnings=result.warnings.map((item)=>`<li>${escapeHtml(item.message)}</li>`).join('');$('#dialogBody').innerHTML=`<div class="score-ring ${result.ready?'ready':'blocked'}"><strong>${result.score}</strong><span>من 100</span></div><h2>${result.ready?'الحملة جاهزة للإطلاق':'الحملة غير جاهزة'}</h2><ul class="check-list">${rows}</ul>${blockers?`<h3>يجب إصلاحها</h3><ul>${blockers}</ul>`:''}${warnings?`<h3>تنبيهات</h3><ul>${warnings}</ul>`:''}`;$('#dialog').showModal(); }
+    if (button.dataset.schedule) { const result = await api(`/campaigns/${button.dataset.schedule}/schedule`, { method: 'POST', body: {} }); notice(`وُضعت ${result.queued} رسالة في الطابور بعد اجتياز الفحص.`); await Promise.all([loadCampaigns(),loadInsights()]); }
     if (button.dataset.pause) { await api(`/campaigns/${button.dataset.pause}/pause`, { method: 'POST' }); notice('تم إيقاف الحملة.'); await loadCampaigns(); }
-    if (button.dataset.analytics) { const result = await api(`/campaigns/${button.dataset.analytics}/analytics`); $('#dialogBody').innerHTML = `<h2>${escapeHtml(result.campaign.name)}</h2><pre>${escapeHtml(JSON.stringify(result.metrics, null, 2))}</pre>`; $('#dialog').showModal(); }
+    if (button.dataset.analytics) { const result = await api(`/campaigns/${button.dataset.analytics}/analytics`); const labels={total:'الإجمالي',accepted:'قبلها المزود',delivered:'وصلت',opened:'فُتحت',clicked:'نُقر الرابط',replied:'الردود',bounced:'المرتدة',failed:'الفاشلة',blocked:'الممنوعة'};$('#dialogBody').innerHTML = `<h2>${escapeHtml(result.campaign.name)}</h2><div class="metric-dialog">${Object.entries(result.metrics).map(([key,value])=>`<article><small>${labels[key]||escapeHtml(key)}</small><strong>${value}</strong></article>`).join('')}</div>`; $('#dialog').showModal(); }
     if (button.dataset.refreshResearch) { await api(`/knowledge/research/${button.dataset.refreshResearch}/refresh`, { method: 'POST' }); await loadKnowledge(); }
     if (button.dataset.report) { const run = state.research.find((item) => item.id === button.dataset.report); $('#dialogBody').innerHTML = `<h2>تقرير البحث</h2><pre>${escapeHtml(run.report_text)}</pre><h3>المصادر</h3><pre>${escapeHtml(JSON.stringify(run.citations, null, 2))}</pre>`; $('#dialog').showModal(); }
     if (button.dataset.outbox) { const message = state.outbox.find((item) => item.id === button.dataset.outbox); $('#dialogBody').innerHTML = `<h2>${escapeHtml(message.subject)}</h2><p>${escapeHtml(message.recipient)}</p><iframe sandbox srcdoc="${escapeHtml(message.html_body)}"></iframe>`; $('#dialog').showModal(); }
