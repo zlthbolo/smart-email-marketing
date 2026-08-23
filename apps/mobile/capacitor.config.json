@@ -1,0 +1,12 @@
+{
+  "appId": "com.jareed.soft",
+  "appName": "Jareed Soft",
+  "webDir": "../web",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

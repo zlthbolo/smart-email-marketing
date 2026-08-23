@@ -30,6 +30,18 @@ No real email is sent until a provider is configured and verified. OAuth tokens,
 
 Provider-specific webhook receivers should normalize events and POST the JSON body to `/v1/webhooks/events` with `x-jareed-signature: sha256=<hex-hmac>`. Sign the exact raw JSON body with `WEBHOOK_SIGNING_SECRET`. Required fields are `providerEventId`, `providerMessageId`, `provider`, and `eventType`. Supported event types are `delivered`, `opened`, `clicked`, `replied`, `bounced`, and `complained`; duplicate event IDs are idempotent. Hard bounces and complaints add a suppression automatically.
 
+## Android app
+
+The native Android project lives in `apps/mobile` and packages the same verified web client with Capacitor. It supports RTL, safe areas, a mobile bottom navigation bar, configurable API URL with a real health check before saving, and OAuth return through `com.jareed.soft://oauth`.
+
+```bash
+npm install
+npm run android:sync
+npm run android:build
+```
+
+The debug APK is generated at `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`. GitHub Actions also builds `jareed-soft-debug-apk` for every mobile/web pull-request update. The Android emulator reaches a host-machine backend through `http://10.0.2.2:3001/v1`; a physical phone should use a deployed HTTPS API URL entered from the initial connection screen.
+
 ## Quality gates
 
 ```bash

@@ -2,10 +2,12 @@
   "name": "jareed-soft",
   "private": true,
   "version": "0.2.0",
-  "workspaces": ["apps/api"],
+  "workspaces": ["apps/api", "apps/mobile"],
   "scripts": {
     "test": "npm --workspace apps/api test",
-    "start": "npm --workspace apps/api start"
+    "start": "npm --workspace apps/api start",
+    "android:sync": "npm --workspace @jareed/mobile run sync",
+    "android:build": "npm --workspace @jareed/mobile run build:debug"
   },
   "engines": { "node": ">=22" }
 }

@@ -30,7 +30,8 @@ const emailQueue=createEmailQueue(redis.client);
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(cors({ origin: config.webOrigin, credentials: true }));
+const allowedOrigins=new Set([config.webOrigin,'http://localhost','https://localhost','capacitor://localhost']);
+app.use(cors({ origin: (origin,callback) => callback(null,!origin||allowedOrigins.has(origin)), credentials: true }));
 app.use(express.json({ limit: '1mb', verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use((req, res, next) => { req.requestId = req.header('x-request-id') || randomUUID(); res.setHeader('x-request-id', req.requestId); next(); });
 

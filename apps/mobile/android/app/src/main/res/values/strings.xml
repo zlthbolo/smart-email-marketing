@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jareed Soft</string>
+    <string name="title_activity_main">Jareed Soft</string>
+    <string name="package_name">com.jareed.soft</string>
+    <string name="custom_url_scheme">com.jareed.soft</string>
+</resources>
