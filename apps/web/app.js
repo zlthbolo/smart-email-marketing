@@ -4,11 +4,12 @@ const defaultApiUrl = isNative ? 'http://10.0.2.2:3001/v1' : `${location.protoco
 let API = localStorage.getItem('jareed_api_url') || window.JAREED_API_URL || defaultApiUrl;
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { token: localStorage.getItem('jareed_token'), user: null, mailboxes: [], campaigns: [], universities: [], insights: null };
+const state = { token: localStorage.getItem('jareed_token'), user: null, mailboxes: [], campaigns: [], universities: [], insights: null, inbox: [] };
 
 const statusLabels = { pending: 'بانتظار التحقق', healthy: 'سليم', unhealthy: 'غير سليم', disabled: 'معطّل', draft: 'مسودة', scheduled: 'مجدولة', running: 'قيد الإرسال', paused: 'متوقفة', completed: 'مكتملة', failed: 'فشلت', accepted: 'قبلها المزود', delivered: 'وصلت', opened: 'فُتحت', clicked: 'نُقر الرابط', replied: 'وصل رد', bounced: 'ارتدت', complained: 'شكوى', blocked: 'ممنوعة', queued: 'في الطابور' };
 const providerLabels = { gmail: 'جيميل', microsoft_graph: 'مايكروسوفت', smtp: 'خادم بريد', api: 'مزود إرسال', test_sink: 'اختبار محلي' };
 const consentLabels = { explicit_opt_in: 'موافقة صريحة', legitimate_interest: 'مصلحة مشروعة', contractual: 'علاقة تعاقدية', legal_obligation: 'التزام قانوني' };
+const intentLabels = { interested: 'مهتم', not_interested: 'غير مهتم', question: 'سؤال', out_of_office: 'خارج المكتب', unsubscribe: 'إلغاء الاشتراك', unknown: 'غير واضح' };
 const statusLabel = (value) => statusLabels[value] || value || 'غير معروف';
 const providerLabel = (value) => providerLabels[value] || value || 'غير معروف';
 
@@ -62,11 +63,12 @@ function item(title, meta, actions = '') {
 }
 
 function showPage(name) {
-  const labels = { overview: 'نظرة عامة', mailboxes: 'صناديق البريد', contacts: 'الجمهور', campaigns: 'الحملات', research: 'وكيل البحث', outbox: 'صندوق الاختبار', settings: 'الإعدادات' };
+  const labels = { overview: 'نظرة عامة', mailboxes: 'صناديق البريد', contacts: 'الجمهور', campaigns: 'الحملات', inbox: 'صندوق الردود', research: 'وكيل البحث', outbox: 'صندوق الاختبار', settings: 'الإعدادات' };
   $$('[data-view]').forEach((view) => view.classList.toggle('hidden', view.dataset.view !== name));
   $$('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === name));
   $('#pageTitle').textContent = labels[name];
   if (name === 'outbox') loadOutbox();
+  if (name === 'inbox') loadInbox();
 }
 
 async function loadHealth() {
@@ -143,8 +145,23 @@ async function loadOutbox() {
   } catch (error) { notice(error.message, 'error'); }
 }
 
+async function loadInbox() {
+  try {
+    const intent = $('#inboxIntent')?.value || '';
+    const reviewState = $('#inboxState')?.value || 'unhandled';
+    const query = new URLSearchParams({ limit: '100' });
+    if (intent) query.set('intent', intent);
+    if (reviewState) query.set('state', reviewState);
+    state.inbox = await api(`/inbox?${query}`);
+    const unhandled = state.inbox.filter((message) => !message.handled_at).length;
+    $('#inboxBadge').textContent = unhandled;
+    $('#inboxBadge').classList.toggle('hidden', !unhandled);
+    $('#inboxList').innerHTML = state.inbox.length ? state.inbox.map((message) => `<article class="reply-card ${message.handled_at ? 'handled' : ''}"><header><div><span class="intent intent-${escapeHtml(message.intent)}">${escapeHtml(intentLabels[message.intent] || 'غير واضح')}</span><strong>${escapeHtml(message.subject || 'رد بلا عنوان')}</strong></div><time>${formatDate(message.received_at)}</time></header><p class="reply-from">${escapeHtml(message.contact_email)} · ${escapeHtml(message.campaign_name)} · ${escapeHtml(message.mailbox_email || providerLabel(message.provider))}</p><blockquote>${escapeHtml(message.text_body || 'لم يرسل المزود نص الرد. يلزم فتح البريد الأصلي للتحقق.')}</blockquote><footer><small>${message.intent_source === 'manual' ? 'تصنيف يدوي' : 'تصنيف آلي بالقواعد'}${message.requires_human ? ' · يحتاج قرارًا بشريًا' : ' · نُفّذ منع التواصل تلقائيًا'}</small>${message.handled_at ? `<span>تمت المراجعة ${formatDate(message.handled_at)}</span>` : `<button class="primary" data-resolve-reply="${message.id}">تمت المراجعة</button>`}</footer></article>`).join('') : '<div class="panel empty-state"><h2>لا توجد ردود مطابقة</h2><p>سيظهر الرد هنا فقط بعد وصول حدث موثّق من مزود البريد.</p></div>';
+  } catch (error) { notice(error.message, 'error'); }
+}
+
 async function refreshAll() {
-  try { await Promise.all([loadHealth(), loadMailboxes(), loadContacts(), loadCampaigns(), loadKnowledge(), loadInsights()]); }
+  try { await Promise.all([loadHealth(), loadMailboxes(), loadContacts(), loadCampaigns(), loadKnowledge(), loadInsights(), loadInbox()]); }
   catch (error) { notice(error.message, 'error'); }
 }
 
@@ -166,6 +183,9 @@ $('#authForm').addEventListener('submit', async (event) => {
 $$('[data-page]').forEach((button) => button.addEventListener('click', () => showPage(button.dataset.page)));
 $('#logout').addEventListener('click', () => signOut());
 $('#refreshAll').addEventListener('click', refreshAll);
+$('#refreshInbox').addEventListener('click', loadInbox);
+$('#inboxIntent').addEventListener('change', loadInbox);
+$('#inboxState').addEventListener('change', loadInbox);
 
 $('#mailboxForm [name="provider"]').addEventListener('change', (event) => { $('.smtp-only').classList.toggle('hidden', event.target.value !== 'smtp'); $('.api-only').classList.toggle('hidden', event.target.value !== 'api'); });
 $('#mailboxForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const body = formData(event.currentTarget); body.secure = event.currentTarget.secure.checked; await api('/mailboxes', { method: 'POST', body }); notice('تم حفظ الصندوق. نفّذ التحقق قبل استخدامه.'); await loadMailboxes(); } catch (error) { notice(error.message, 'error'); } });
@@ -198,6 +218,7 @@ document.addEventListener('click', async (event) => {
     if (button.dataset.deleteMailbox && confirm('حذف صندوق البريد؟')) { await api(`/mailboxes/${button.dataset.deleteMailbox}`, { method: 'DELETE' }); await loadMailboxes(); }
     if (button.dataset.deleteContact && confirm('حذف جهة الاتصال؟')) { await api(`/contacts/${button.dataset.deleteContact}`, { method: 'DELETE' }); await loadContacts(); }
     if (button.dataset.actionPage) showPage(button.dataset.actionPage);
+    if (button.dataset.resolveReply) { await api(`/inbox/${button.dataset.resolveReply}/resolve`, { method: 'POST' }); notice('تم تسجيل مراجعة الرد في سجل التدقيق.'); await loadInbox(); }
     if (button.dataset.preflight) { const result = await api(`/campaigns/${button.dataset.preflight}/preflight`); const rows=result.checks.map((check)=>`<li class="${check.passed?'check-ok':'check-bad'}"><b>${check.passed?'✓':'×'} ${escapeHtml(check.label)}</b><small>${escapeHtml(check.detail)}</small></li>`).join('');const blockers=result.blockers.map((item)=>`<li>${escapeHtml(item.message)}</li>`).join('');const warnings=result.warnings.map((item)=>`<li>${escapeHtml(item.message)}</li>`).join('');$('#dialogBody').innerHTML=`<div class="score-ring ${result.ready?'ready':'blocked'}"><strong>${result.score}</strong><span>من 100</span></div><h2>${result.ready?'الحملة جاهزة للإطلاق':'الحملة غير جاهزة'}</h2><ul class="check-list">${rows}</ul>${blockers?`<h3>يجب إصلاحها</h3><ul>${blockers}</ul>`:''}${warnings?`<h3>تنبيهات</h3><ul>${warnings}</ul>`:''}`;$('#dialog').showModal(); }
     if (button.dataset.schedule) { const result = await api(`/campaigns/${button.dataset.schedule}/schedule`, { method: 'POST', body: {} }); notice(`وُضعت ${result.queued} رسالة في الطابور بعد اجتياز الفحص.`); await Promise.all([loadCampaigns(),loadInsights()]); }
     if (button.dataset.pause) { await api(`/campaigns/${button.dataset.pause}/pause`, { method: 'POST' }); notice('تم إيقاف الحملة.'); await loadCampaigns(); }

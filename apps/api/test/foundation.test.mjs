@@ -8,6 +8,7 @@ import { renderTemplate, sanitizeEmailHtml } from '../src/core/templates.mjs';
 import { requireEmail, requireText } from '../src/core/validation.mjs';
 import { hashPassword, verifyPassword } from '../src/core/passwords.mjs';
 import { buildOperatorActions, evaluateCampaignReadiness } from '../src/core/readiness.mjs';
+import { classifyReplyIntent, extractInboundReply } from '../src/core/replies.mjs';
 
 test('jitter is deterministic and bounded', () => {
   const input={campaignId:'c1',recipientId:'r1',maxJitterMs:120000,secret:'secret'};
@@ -51,4 +52,15 @@ test('campaign readiness blocks audiences that would overflow today',()=>{
 test('operator actions always surface reputation risk first',()=>{
   const actions=buildOperatorActions({healthyMailboxes:1,contacts:20,universities:1,completedResearch:1,highBounceCampaigns:1});
   assert.equal(actions[0].code,'STOP_HIGH_BOUNCE');assert.equal(actions.some((item)=>item.code==='CREATE_CAMPAIGN'),true);
+});
+test('reply intent classification handles Arabic and safety priority',()=>{
+  assert.equal(classifyReplyIntent('أنا غير مهتم، الرجاء إلغاء الاشتراك وعدم مراسلتي').intent,'unsubscribe');
+  assert.equal(classifyReplyIntent('أنا مهتم، أرسل لي التفاصيل').intent,'interested');
+  assert.equal(classifyReplyIntent('هل يمكن معرفة موعد التسجيل؟').intent,'question');
+  assert.equal(classifyReplyIntent('أنا في إجازة وخارج المكتب حتى الأحد').intent,'out_of_office');
+});
+test('reply extraction never invents unavailable content',()=>{
+  assert.deepEqual(extractInboundReply({detail:{subject:'رد'}}),{subject:'رد',textBody:null,htmlBody:null,receivedAt:null});
+  assert.equal(classifyReplyIntent(null).intent,'unknown');
+  assert.equal(classifyReplyIntent(null).confidence,0);
 });
