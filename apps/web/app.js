@@ -8,6 +8,7 @@ const state = { token: localStorage.getItem('jareed_token'), user: null, mailbox
 
 const statusLabels = { pending: 'بانتظار التحقق', healthy: 'سليم', unhealthy: 'غير سليم', disabled: 'معطّل', draft: 'مسودة', scheduled: 'مجدولة', running: 'قيد الإرسال', paused: 'متوقفة', completed: 'مكتملة', failed: 'فشلت', accepted: 'قبلها المزود', delivered: 'وصلت', opened: 'فُتحت', clicked: 'نُقر الرابط', replied: 'وصل رد', bounced: 'ارتدت', complained: 'شكوى', blocked: 'ممنوعة', queued: 'في الطابور' };
 const providerLabels = { gmail: 'جيميل', microsoft_graph: 'مايكروسوفت', smtp: 'خادم بريد', api: 'مزود إرسال', test_sink: 'اختبار محلي' };
+const consentLabels = { explicit_opt_in: 'موافقة صريحة', legitimate_interest: 'مصلحة مشروعة', contractual: 'علاقة تعاقدية', legal_obligation: 'التزام قانوني' };
 const statusLabel = (value) => statusLabels[value] || value || 'غير معروف';
 const providerLabel = (value) => providerLabels[value] || value || 'غير معروف';
 
@@ -98,7 +99,7 @@ async function loadMailboxes() {
 
 async function loadContacts() {
   const contacts = await api('/contacts?limit=100');
-  $('#contactList').innerHTML = contacts.length ? contacts.map((contact) => item(contact.email, `${contact.first_name || ''} · ${contact.university || 'بدون جامعة'} · ${contact.consent_basis}`, `<button class="danger" data-delete-contact="${contact.id}">حذف</button>`)).join('') : '<p class="empty">لا توجد جهات اتصال.</p>';
+  $('#contactList').innerHTML = contacts.length ? contacts.map((contact) => item(contact.email, `${contact.first_name || ''} · ${contact.university || 'بدون جامعة'} · ${consentLabels[contact.consent_basis] || 'أساس موافقة مسجل'}`, `<button class="danger" data-delete-contact="${contact.id}">حذف</button>`)).join('') : '<p class="empty">لا توجد جهات اتصال.</p>';
 }
 
 async function loadCampaigns() {
@@ -127,9 +128,9 @@ async function loadKnowledge() {
   state.universities = universities;
   $('#researchUniversity').innerHTML = universities.map((university) => `<option value="${university.id}">${escapeHtml(university.name)}</option>`).join('');
   $('#researchList').innerHTML = research.length ? research.map((run) => item(
-    `${run.university_name} — ${run.status}`,
+    `${run.university_name} — ${statusLabel(run.status)}`,
     `${run.objective} · ${run.evidence_count || 0} مصدر`,
-    `${run.provider_response_id && run.status === 'running' ? `<button data-refresh-research="${run.id}">تحديث من OpenAI</button>` : ''}${run.report_text ? `<button data-report="${run.id}">عرض التقرير</button>` : ''}`
+    `${run.provider_response_id && run.status === 'running' ? `<button data-refresh-research="${run.id}">تحديث حالة البحث</button>` : ''}${run.report_text ? `<button data-report="${run.id}">عرض التقرير</button>` : ''}`
   )).join('') : '<p class="empty">لم يبدأ بحث بعد.</p>';
   state.research = research;
 }
@@ -175,10 +176,10 @@ $('#microsoftConnect').addEventListener('click', async () => { try { await openO
 $('#contactForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const contacts = JSON.parse(formData(event.currentTarget).contacts); const result = await api('/contacts/import', { method: 'POST', body: { contacts } }); notice(`تم استيراد أو تحديث ${result.imported} جهة.`); await loadContacts(); } catch (error) { notice(error.message, 'error'); } });
 
 $('#campaignForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const body = formData(event.currentTarget); body.segment = { university: body.university || undefined, specialization: body.specialization || undefined }; body.maxJitterSeconds = Number(body.maxJitterSeconds); delete body.university; delete body.specialization; await api('/campaigns', { method: 'POST', body }); notice('أُنشئت المسودة. راجعها ثم اضغط جدولة الآن.'); event.currentTarget.reset(); await loadCampaigns(); } catch (error) { notice(error.message, 'error'); } });
-$('#generateCampaign').addEventListener('click', async () => { try { const form=$('#campaignForm');const brief=form.aiBrief.value;const draft=await api('/knowledge/agent/draft-campaign',{method:'POST',body:{brief,audience:[form.university.value,form.specialization.value].filter(Boolean).join(' / '),language:'ar'}});form.subject.value=draft.subject;form.html.value=draft.html;form.text.value=draft.text;notice(`أنشأ وكيل AI مسودة قابلة للمراجعة (${draft.responseId}).`); } catch(error){notice(error.message,'error')} });
+$('#generateCampaign').addEventListener('click', async () => { try { const form=$('#campaignForm');const brief=form.aiBrief.value;const draft=await api('/knowledge/agent/draft-campaign',{method:'POST',body:{brief,audience:[form.university.value,form.specialization.value].filter(Boolean).join(' / '),language:'ar'}});form.subject.value=draft.subject;form.html.value=draft.html;form.text.value=draft.text;notice(`أنشأ وكيل الذكاء الاصطناعي مسودة قابلة للمراجعة (${draft.responseId}).`); } catch(error){notice(error.message,'error')} });
 
 $('#universityForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/knowledge/universities', { method: 'POST', body: formData(event.currentTarget) }); notice('تمت إضافة الجامعة.'); event.currentTarget.reset(); await loadKnowledge(); } catch (error) { notice(error.message, 'error'); } });
-$('#researchForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/knowledge/research', { method: 'POST', body: formData(event.currentTarget) }); notice('بدأ البحث في الخلفية. استخدم زر التحديث لجلب الحالة من OpenAI.'); await loadKnowledge(); } catch (error) { notice(error.message, 'error'); } });
+$('#researchForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/knowledge/research', { method: 'POST', body: formData(event.currentTarget) }); notice('بدأ البحث في الخلفية. استخدم زر التحديث لجلب حالته من مزود البحث.'); await loadKnowledge(); } catch (error) { notice(error.message, 'error'); } });
 
 async function saveApiUrl(next){next=String(next).replace(/\/$/,'');if(!/^https:\/\//.test(next)&&!/^http:\/\/(10\.0\.2\.2|localhost|127\.0\.0\.1)(:\d+)?\//.test(`${next}/`))throw new Error('استخدم HTTPS، أو عنوان المحاكي المحلي فقط.');const previous=API;API=next;try{const response=await fetch(`${API}/health`,{cache:'no-store'});const health=await response.json();if(!response.ok||!health.ok)throw new Error(health.error?.message||`HTTP ${response.status}`);localStorage.setItem('jareed_api_url',API);$('#apiUrlState').textContent=`متصل: ${API} — ${health.status}`;return health}catch(error){API=previous;throw error}}
 $('#apiSettingsForm').apiUrl.value=API;$('#apiUrlState').textContent=`العنوان الحالي: ${API}`;
