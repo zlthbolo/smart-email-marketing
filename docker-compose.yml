@@ -1,85 +1,53 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:15-alpine
-    container_name: smart-email-db
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${DB_USER:-smart_email}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secure_password_123}
-      POSTGRES_DB: ${DB_NAME:-smart_email_marketing}
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: jareed
+      POSTGRES_PASSWORD: change-me
+      POSTGRES_DB: jareed
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jareed -d jareed"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - smart-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-smart_email}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - ./apps/api/migrations:/docker-entrypoint-initdb.d:ro
 
   redis:
     image: redis:7-alpine
-    container_name: smart-email-redis
-    ports:
-      - "6379:6379"
-    networks:
-      - smart-network
+    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: smart-email-backend
-    environment:
-      NODE_ENV: development
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: ${DB_USER:-smart_email}
-      DB_PASSWORD: ${DB_PASSWORD:-secure_password_123}
-      DB_NAME: ${DB_NAME:-smart_email_marketing}
-      REDIS_URL: redis://redis:6379
-      PORT: 3001
-    ports:
-      - "3001:3001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - smart-network
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
-      - ./backend:/app
-      - /app/node_modules
+      - redis_data:/data
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: smart-email-frontend
-    ports:
-      - "3000:3000"
+  api:
+    build: ./apps/api
+    env_file: .env
+    ports: ["3001:3001"]
     depends_on:
-      - backend
-    networks:
-      - smart-network
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: ./apps/api
+    command: ["node", "src/worker.mjs"]
+    env_file: .env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  web:
+    image: nginx:1.27-alpine
+    ports: ["3000:80"]
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      REACT_APP_API_URL: http://localhost:3001
+      - ./apps/web:/usr/share/nginx/html:ro
+    depends_on: [api]
 
 volumes:
   postgres_data:
-
-networks:
-  smart-network:
-    driver: bridge
+  redis_data:

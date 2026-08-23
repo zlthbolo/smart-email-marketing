@@ -1,0 +1,11 @@
+{
+  "name": "jareed-soft",
+  "private": true,
+  "version": "0.2.0",
+  "workspaces": ["apps/api"],
+  "scripts": {
+    "test": "npm --workspace apps/api test",
+    "start": "npm --workspace apps/api start"
+  },
+  "engines": { "node": ">=22" }
+}

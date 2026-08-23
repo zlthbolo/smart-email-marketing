@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jareed Soft</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <aside><div class="brand">Jareed <span>Soft</span></div><nav><a class="active">نظرة عامة</a><a>صناديق البريد</a><a>الحملات</a><a>الجمهور</a><a>وكيل البحث</a><a>قاعدة المعرفة</a><a>التحليلات</a><a>الإعدادات</a></nav></aside>
+  <main>
+    <header><div><p class="eyebrow">لوحة التشغيل</p><h1>كل شيء واضح، ولا نجاح وهمي.</h1><p>تأتي الحالات أدناه مباشرة من الـAPI واعتماداته.</p></div><button id="refresh">تحديث الحالة</button></header>
+    <section class="status"><div><span id="dot" class="dot wait"></span><strong id="overall">جارٍ الفحص…</strong><small id="checked"></small></div></section>
+    <section class="grid">
+      <article><p>PostgreSQL</p><h2 id="postgres">غير مفحوص</h2><small id="postgres-detail">—</small></article>
+      <article><p>Redis / Queues</p><h2 id="redis">غير مفحوص</h2><small id="redis-detail">—</small></article>
+      <article><p>مزودو الإرسال</p><h2 id="providers">غير موثّق</h2><small>يُفحص كل صندوق بعد ربطه فعليًا</small></article>
+      <article><p>الحملات النشطة</p><h2>0</h2><small>لا توجد عملية إرسال دون تهيئة مزود</small></article>
+    </section>
+    <section class="panel"><div><p class="eyebrow">المرحلة الحالية</p><h2>Foundation</h2></div><ol><li class="done">قاعدة البيانات والتقسيم بين المستأجرين</li><li class="done">الطوابير، المنع، والتدرج اليومي</li><li class="done">محولات Gmail وMicrosoft Graph وSMTP</li><li>إكمال OAuth وربط أسرار الإنتاج</li><li>تشغيل أول إرسال اختباري موثّق</li></ol></section>
+  </main><script src="app.js"></script>
+</body></html>
