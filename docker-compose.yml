@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: jareed
-      POSTGRES_PASSWORD: change-me
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
       POSTGRES_DB: jareed
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jareed -d jareed"]
@@ -12,7 +12,6 @@ services:
       retries: 20
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./apps/api/migrations:/docker-entrypoint-initdb.d:ro
 
   redis:
     image: redis:7-alpine
@@ -27,19 +26,38 @@ services:
 
   api:
     build: ./apps/api
-    env_file: .env
+    environment: &api_environment
+      API_PORT: 3001
+      DATABASE_URL: postgresql://jareed:${POSTGRES_PASSWORD:-change-me}@postgres:5432/jareed
+      REDIS_URL: redis://redis:6379
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3001}
+      CREDENTIAL_ENCRYPTION_KEY_BASE64: ${CREDENTIAL_ENCRYPTION_KEY_BASE64:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:-development-only-change-in-production}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3001/v1/oauth/google/callback}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-http://localhost:3001/v1/oauth/microsoft/callback}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_RESEARCH_MODEL: ${OPENAI_RESEARCH_MODEL:-o3-deep-research}
     ports: ["3001:3001"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/v1/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   worker:
     build: ./apps/api
     command: ["node", "src/worker.mjs"]
-    env_file: .env
+    environment: *api_environment
     depends_on:
-      postgres: { condition: service_healthy }
-      redis: { condition: service_healthy }
+      api: { condition: service_healthy }
 
   web:
     image: nginx:1.27-alpine

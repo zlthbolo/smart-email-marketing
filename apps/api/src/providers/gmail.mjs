@@ -16,7 +16,8 @@ export class GmailProvider {
   }
 
   async send(message) {
-    const raw = [`From: ${message.from}`, `To: ${message.to}`, `Subject: ${message.subject}`, 'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', message.html].join('\r\n');
+    const extra=Object.entries(message.headers||{}).map(([key,value])=>`${key}: ${value}`);
+    const raw = [`From: ${message.from}`, `To: ${message.to}`, `Subject: ${message.subject}`,...extra, 'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', message.html].join('\r\n');
     const token = await this.accessTokenProvider();
     const response = await this.fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: base64Url(raw) }) });
     const body = await response.json().catch(() => ({}));

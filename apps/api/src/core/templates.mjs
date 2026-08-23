@@ -1,0 +1,3 @@
+const escapeHtml=(value)=>String(value??'').replace(/[&<>"']/g,(char)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+export function renderTemplate(template,contact){return String(template).replace(/\{\{\s*(first_name|last_name|email|university|specialization)\s*\}\}/g,(_all,key)=>key==='email'?String(contact[key]||''):escapeHtml(contact[key]||''))}
+export function sanitizeEmailHtml(html){return String(html).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi,'').replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'').replace(/(href|src)\s*=\s*(["'])\s*(javascript|data|vbscript):[\s\S]*?\2/gi,'$1="#"')}

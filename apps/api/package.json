@@ -4,7 +4,8 @@
   "version": "0.2.0",
   "type": "module",
   "scripts": {
-    "start": "node src/server.mjs",
+    "start": "node src/migrate.mjs && node src/server.mjs",
+    "migrate": "node src/migrate.mjs",
     "worker": "node src/worker.mjs",
     "test": "node --test"
   },

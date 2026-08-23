@@ -4,31 +4,23 @@ import { createDatabase } from './core/db.mjs';
 import { createRedis } from './core/redis.mjs';
 import { emailSuppressionHash } from './core/crypto.mjs';
 import { maySend } from './core/scheduling.mjs';
+import { renderTemplate, sanitizeEmailHtml } from './core/templates.mjs';
+import { createProviderResolver } from './providers/resolver.mjs';
 
-const config = loadConfig();
-const db = createDatabase(config.databaseUrl);
-const redis = createRedis(config.redisUrl);
-await redis.connect();
-
-const worker = new Worker('email-delivery', async (job) => {
-  const { campaignId, recipientId, mailboxId } = job.data;
-  const { rows } = await db.query(`
-    select r.id recipient_id, r.email, r.status recipient_status,
-           m.id mailbox_id, m.status mailbox_status, m.sent_today, m.effective_daily_limit
-    from campaign_recipients r join mailboxes m on m.id = $3
-    where r.id = $2 and r.campaign_id = $1`, [campaignId, recipientId, mailboxId]);
-  if (!rows[0]) throw new Error('Delivery record or mailbox not found');
-  const hash = emailSuppressionHash(rows[0].email);
-  const suppressed = (await db.query('select 1 from suppressions where tenant_id = (select tenant_id from mailboxes where id = $1) and email_hash = $2', [mailboxId, hash])).rowCount > 0;
-  const decision = maySend({ mailboxStatus: rows[0].mailbox_status, sentToday: rows[0].sent_today, effectiveDailyLimit: rows[0].effective_daily_limit, suppressed });
-  if (!decision.allowed) {
-    await db.query("update campaign_recipients set status = 'blocked', last_error_code = $2, updated_at = now() where id = $1", [recipientId, decision.reason]);
-    return { status: 'blocked', reason: decision.reason };
-  }
-  // Provider resolution requires decrypting this mailbox's credential envelope.
-  // It is intentionally not guessed or reported as successful until configured.
-  throw new Error('MAILBOX_PROVIDER_RESOLVER_NOT_CONFIGURED');
-}, { connection: redis.client, concurrency: 10 });
-
-worker.on('failed', (job, error) => console.error(JSON.stringify({ level: 'error', event: 'delivery_failed', jobId: job?.id, message: error.message })));
-worker.on('completed', (job, result) => console.log(JSON.stringify({ level: 'info', event: 'delivery_completed', jobId: job.id, result })));
+const config=loadConfig();const db=createDatabase(config.databaseUrl);const redis=createRedis(config.redisUrl);await redis.connect();const resolveProvider=createProviderResolver({db,config});
+async function record(recipient,type,detail={}){await db.query('insert into delivery_events (tenant_id,campaign_recipient_id,event_type,provider,provider_message_id,detail) values ($1,$2,$3,$4,$5,$6)',[recipient.tenant_id,recipient.recipient_id,type,recipient.provider,detail.providerMessageId||null,JSON.stringify(detail)])}
+const worker=new Worker('email-delivery',async(job)=>{const {campaignId,recipientId,mailboxId,tenantId}=job.data;
+  const {rows}=await db.query(`select r.id recipient_id,r.email recipient_email,r.status recipient_status,r.tracking_token,r.unsubscribe_token,r.contact_id,c.first_name,c.last_name,c.university,c.specialization,p.id campaign_id,p.status campaign_status,p.subject_template,p.html_template,p.text_template,p.physical_address,p.sender_name,m.email mailbox_email,m.* from campaign_recipients r join contacts c on c.id=r.contact_id join campaigns p on p.id=r.campaign_id join mailboxes m on m.id=$3 and m.id=p.mailbox_id and m.tenant_id=p.tenant_id where r.id=$2 and r.campaign_id=$1 and p.tenant_id=$4`,[campaignId,recipientId,mailboxId,tenantId]);
+  const row=rows[0];if(!row)throw new Error('DELIVERY_CONTEXT_NOT_FOUND');if(row.recipient_status!=='queued')return {status:'already_processed',recipientStatus:row.recipient_status};if(!['scheduled','running'].includes(row.campaign_status)){if(row.campaign_status==='paused')await db.query("update campaign_recipients set status='pending',updated_at=now() where id=$1 and status='queued'",[recipientId]);return {status:'blocked',reason:'CAMPAIGN_NOT_ACTIVE'}};
+  const currentSent=String(row.sent_today_date)===new Date().toISOString().slice(0,10)?row.sent_today:0;const suppressed=(await db.query('select 1 from suppressions where tenant_id=$1 and email_hash=$2',[tenantId,emailSuppressionHash(row.recipient_email)])).rowCount>0;const decision=maySend({mailboxStatus:row.status,sentToday:currentSent,effectiveDailyLimit:row.effective_daily_limit,suppressed});
+  if(!decision.allowed){await db.query("update campaign_recipients set status='blocked',last_error_code=$2,updated_at=now() where id=$1",[recipientId,decision.reason]);await record({...row,tenant_id:tenantId},'blocked',{reason:decision.reason});return {status:'blocked',reason:decision.reason}}
+  await db.query("update campaigns set status='running',updated_at=now() where id=$1 and status='scheduled'",[campaignId]);
+  const reserved=await db.query(`update mailboxes set warmup_day=case when sent_today_date<current_date then warmup_day+(current_date-sent_today_date) else warmup_day end,effective_daily_limit=least(configured_daily_limit,floor(10*power(1.35,(case when sent_today_date<current_date then warmup_day+(current_date-sent_today_date) else warmup_day end)-1)))::int,sent_today=case when sent_today_date=current_date then sent_today+1 else 1 end,sent_today_date=current_date,updated_at=now() where id=$1 and status='healthy' and (case when sent_today_date=current_date then sent_today else 0 end)<least(configured_daily_limit,floor(10*power(1.35,(case when sent_today_date<current_date then warmup_day+(current_date-sent_today_date) else warmup_day end)-1)))::int returning id`,[mailboxId]);
+  if(!reserved.rowCount){await db.query("update campaign_recipients set status='blocked',last_error_code='DAILY_LIMIT_REACHED',updated_at=now() where id=$1",[recipientId]);await record({...row,tenant_id:tenantId},'blocked',{reason:'DAILY_LIMIT_REACHED'});return {status:'blocked',reason:'DAILY_LIMIT_REACHED'}}
+  const releaseReservation=()=>db.query('update mailboxes set sent_today=greatest(0,sent_today-1),updated_at=now() where id=$1 and sent_today_date=current_date',[mailboxId]);
+  const contact={email:row.recipient_email,first_name:row.first_name,last_name:row.last_name,university:row.university,specialization:row.specialization};const unsubscribeUrl=`${config.publicApiUrl}/v1/public/unsubscribe/${row.unsubscribe_token}`;const pixel=`${config.publicApiUrl}/v1/public/open/${row.tracking_token}.gif`;const footer=`<hr><p style="font-size:12px;color:#666">${row.physical_address}<br><a href="${unsubscribeUrl}">Unsubscribe / إلغاء الاشتراك</a></p><img src="${pixel}" width="1" height="1" alt="">`;const message={from:`${row.sender_name||row.display_name||row.mailbox_email} <${row.mailbox_email}>`,to:row.recipient_email,subject:renderTemplate(row.subject_template,contact),html:sanitizeEmailHtml(renderTemplate(row.html_template,contact))+footer,text:`${renderTemplate(row.text_template,contact)}\n\n${row.physical_address}\nUnsubscribe: ${unsubscribeUrl}`,headers:{'List-Unsubscribe':`<${unsubscribeUrl}>`,'List-Unsubscribe-Post':'List-Unsubscribe=One-Click'}};
+  let result;try{result=await(await resolveProvider(row)).send(message)}catch(error){await releaseReservation();throw error}if(result.status!=='accepted'){await releaseReservation();await db.query("update campaign_recipients set status=$2,last_error_code=$3,last_error_detail=$4,updated_at=now() where id=$1",[recipientId,result.error.retryable?'queued':'failed',result.error.code,result.error.message]);await record({...row,tenant_id:tenantId},'provider_rejected',result);if(result.error.retryable)throw new Error(`${result.error.code}: ${result.error.message}`);return result}
+  const client=await db.connect();try{await client.query('begin');await client.query("update campaign_recipients set status='accepted',provider_message_id=$2,accepted_at=now(),last_error_code=null,last_error_detail=null,updated_at=now() where id=$1",[recipientId,result.providerMessageId]);await client.query('insert into delivery_events (tenant_id,campaign_recipient_id,event_type,provider,provider_message_id,detail) values ($1,$2,\'accepted\',$3,$4,$5)',[tenantId,recipientId,row.provider,result.providerMessageId,JSON.stringify(result.response||{})]);await client.query('commit')}catch(e){await client.query('rollback');throw e}finally{client.release()}
+  const remaining=(await db.query("select count(*)::int count from campaign_recipients where campaign_id=$1 and status in ('pending','queued')",[campaignId])).rows[0].count;if(remaining===0)await db.query("update campaigns set status='completed',updated_at=now() where id=$1",[campaignId]);return result;
+},{connection:redis.client,concurrency:10});
+worker.on('failed',async(job,error)=>{console.error(JSON.stringify({level:'error',event:'delivery_failed',jobId:job?.id,message:error.message,attemptsMade:job?.attemptsMade}));if(job&&job.attemptsMade>=Number(job.opts.attempts||1))await db.query("update campaign_recipients set status='failed',last_error_code='RETRIES_EXHAUSTED',last_error_detail=$2,updated_at=now() where id=$1 and status='queued'",[job.data.recipientId,error.message]).catch(()=>{})});worker.on('completed',(job,result)=>console.log(JSON.stringify({level:'info',event:'delivery_completed',jobId:job.id,result})));

@@ -7,18 +7,18 @@ Use a modular monolith with independent API and worker processes. PostgreSQL is 
 ## Runtime flow
 
 1. API validates tenant, consent, campaign, schedule, and mailbox eligibility.
-2. PostgreSQL transaction materializes `campaign_recipients` and an outbox event (outbox is Phase 2).
+2. A PostgreSQL transaction materializes immutable `campaign_recipients`; queue failure moves the campaign to `failed` and restores unsent recipients to `pending` for explicit recovery.
 3. Scheduler adds idempotent BullMQ jobs with deterministic bounded jitter.
 4. Worker re-checks suppression, mailbox status, ramp limit, and campaign state immediately before sending.
 5. Provider adapter returns `accepted` only with an upstream acknowledgement/message ID.
-6. Webhooks are signature-verified, persisted idempotently in `provider_events`, then processed asynchronously.
+6. Normalized webhooks are signature-verified, persisted idempotently in `provider_events`, then update delivery, reply, bounce, complaint, and suppression state.
 7. Analytics derives from immutable events; opens are advisory because privacy proxies make them unreliable.
 
 ## Trust boundaries
 
 - OAuth tokens and SMTP/API credentials are AES-256-GCM envelopes; plaintext exists only during provider calls.
 - Tenant ID is derived from authenticated identity, never accepted from request bodies.
-- PostgreSQL RLS will be enabled when Supabase Auth identity mapping is added; the service role must remain server-only.
+- Every API query derives tenant ID from the authenticated server session. For Supabase deployment, keep the service role server-only and add RLS policies mapped to the chosen Supabase Auth claims before exposing direct database access.
 - Inbound email and crawled documents are untrusted data, never agent instructions. High-risk agent actions require approval.
 - Marketing sends require consent basis, suppression check, physical address, and one-click unsubscribe.
 
@@ -28,7 +28,7 @@ Use a modular monolith with independent API and worker processes. PostgreSQL is 
 
 ## Knowledge and research
 
-The research pipeline is source-first: crawl allowed official pages/PDFs, hash and version sources, extract claims with citations, and publish only claims backed by stored evidence. An AI-generated answer without evidence remains `draft` and cannot update the canonical knowledge base.
+Deep research runs through the OpenAI Responses API in background mode with web search. Returned URL citations are stored in `knowledge_sources`; the UI shows the report and evidence count. Web content is explicitly treated as untrusted data, not agent instructions. The campaign agent uses strict structured output and produces drafts only; the operator schedules them explicitly.
 
 ## Evidence
 

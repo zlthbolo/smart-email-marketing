@@ -15,7 +15,8 @@ export class MicrosoftGraphProvider {
 
   async send(message) {
     const token = await this.accessTokenProvider();
-    const response = await this.fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.mailbox)}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: message.subject, body: { contentType: 'HTML', content: message.html }, toRecipients: [{ emailAddress: { address: message.to } }] }) });
+    const internetMessageHeaders=Object.entries(message.headers||{}).map(([name,value])=>({name,value}));
+    const response = await this.fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.mailbox)}/messages`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: message.subject, body: { contentType: 'HTML', content: message.html }, toRecipients: [{ emailAddress: { address: message.to } }],internetMessageHeaders }) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.id) return rejected({ provider: this.name, code: `HTTP_${response.status}`, message: body.error?.message || 'Microsoft Graph rejected draft creation', retryable: isRetryableStatus(response.status), response: body });
     const send = await this.fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(this.mailbox)}/messages/${body.id}/send`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });

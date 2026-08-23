@@ -1,20 +1,16 @@
 import { Router } from 'express';
+import { encryptCredential } from '../core/crypto.mjs';
 import { AppError } from '../core/errors.mjs';
+import { boundedInteger, requireEmail, requireText, requireUuid } from '../core/validation.mjs';
 
-export function createMailboxRouter({ db, providerResolver }) {
-  const router = Router();
-  router.post('/:id/verify', async (req, res, next) => {
-    try {
-      const { rows } = await db.query('select id, tenant_id, provider, status from mailboxes where id = $1', [req.params.id]);
-      if (!rows[0]) throw new AppError('MAILBOX_NOT_FOUND', 'Mailbox not found', 404);
-      const provider = await providerResolver(rows[0]);
-      const result = await provider.verify();
-      await db.query("update mailboxes set status = 'healthy', verified_at = now(), last_error = null, updated_at = now() where id = $1", [rows[0].id]);
-      res.json({ ok: true, data: result });
-    } catch (error) {
-      await db.query("update mailboxes set status = 'unhealthy', last_error = $2, updated_at = now() where id = $1", [req.params.id, error.message]).catch(() => {});
-      next(error);
-    }
-  });
+export function createMailboxRouter({ db, config, auth, providerResolver }) {
+  const router = Router(); router.use(auth);
+  const load=async(id,tenantId)=>{const {rows}=await db.query('select * from mailboxes where id=$1 and tenant_id=$2',[id,tenantId]);if(!rows[0])throw new AppError('MAILBOX_NOT_FOUND','Mailbox not found',404);return rows[0]};
+  router.get('/',async(req,res,next)=>{try{const {rows}=await db.query(`select id,provider,email,display_name,status,configured_daily_limit,effective_daily_limit,sent_today,warmup_day,verified_at,last_error,provider_metadata,created_at,updated_at from mailboxes where tenant_id=$1 order by created_at desc`,[req.auth.tenant_id]);res.json({ok:true,data:rows})}catch(e){next(e)}});
+  router.post('/',async(req,res,next)=>{try{const provider=String(req.body.provider||'');if(!['smtp','api','test_sink'].includes(provider))throw new AppError('USE_OAUTH','Gmail and Microsoft mailboxes must be connected through OAuth',400);const email=requireEmail(req.body.email);const displayName=requireText(req.body.displayName||email,'displayName',{max:120});let credentials={};if(provider==='smtp'){credentials={host:requireText(req.body.host,'host',{max:255}),port:boundedInteger(req.body.port,'port',1,65535,587),secure:Boolean(req.body.secure),username:requireText(req.body.username,'username',{max:320}),password:requireText(req.body.password,'password',{max:1000})}}if(provider==='api'){const apiKind=String(req.body.apiKind||'');if(!['resend','postmark'].includes(apiKind))throw new AppError('VALIDATION_ERROR','apiKind must be resend or postmark',400);credentials={apiKind,apiKey:requireText(req.body.apiKey,'apiKey',{max:2000})}}const envelope=encryptCredential(JSON.stringify(credentials),config.credentialKey);const limit=boundedInteger(req.body.dailyLimit,'dailyLimit',1,50000,25);const {rows}=await db.query(`insert into mailboxes (tenant_id,provider,email,display_name,credential_envelope,configured_daily_limit,effective_daily_limit,provider_metadata) values ($1,$2,$3,$4,$5,$6,least($6,10),$7) returning id,provider,email,display_name,status,configured_daily_limit,effective_daily_limit,provider_metadata,created_at`,[req.auth.tenant_id,provider,email,displayName,envelope,limit,JSON.stringify(provider==='api'?{apiKind:req.body.apiKind}:{})]);res.status(201).json({ok:true,data:rows[0]})}catch(e){next(e)}});
+  router.post('/:id/verify',async(req,res,next)=>{try{const mailbox=await load(requireUuid(req.params.id),req.auth.tenant_id);const result=await(await providerResolver(mailbox)).verify();await db.query("update mailboxes set status='healthy',verified_at=now(),last_error=null,updated_at=now() where id=$1",[mailbox.id]);res.json({ok:true,data:result})}catch(e){await db.query("update mailboxes set status='unhealthy',last_error=$2,updated_at=now() where id=$1 and tenant_id=$3",[req.params.id,e.message,req.auth.tenant_id]).catch(()=>{});next(e)}});
+  router.post('/:id/test',async(req,res,next)=>{try{const mailbox=await load(requireUuid(req.params.id),req.auth.tenant_id);if(mailbox.status!=='healthy')throw new AppError('MAILBOX_NOT_VERIFIED','Verify the mailbox before sending',409);const to=requireEmail(req.body.to);const result=await(await providerResolver(mailbox)).send({from:`${mailbox.display_name||mailbox.email} <${mailbox.email}>`,to,subject:'Jareed Soft — verified delivery test',html:'<p>This message confirms that Jareed Soft received a real provider acknowledgement.</p>',text:'This message confirms that Jareed Soft received a real provider acknowledgement.'});if(result.status!=='accepted')throw new AppError(result.error.code,result.error.message,result.error.retryable?503:422,result);res.json({ok:true,data:result})}catch(e){next(e)}});
+  router.get('/test-outbox/messages',async(req,res,next)=>{try{const {rows}=await db.query('select id,mailbox_id,recipient,subject,html_body,text_body,created_at from test_outbox where tenant_id=$1 order by created_at desc limit 100',[req.auth.tenant_id]);res.json({ok:true,data:rows})}catch(e){next(e)}});
+  router.delete('/:id',async(req,res,next)=>{try{const id=requireUuid(req.params.id);const result=await db.query('delete from mailboxes where id=$1 and tenant_id=$2',[id,req.auth.tenant_id]);if(!result.rowCount)throw new AppError('MAILBOX_NOT_FOUND','Mailbox not found',404);res.json({ok:true})}catch(e){next(e)}});
   return router;
 }

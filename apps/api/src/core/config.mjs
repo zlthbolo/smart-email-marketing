@@ -20,6 +20,21 @@ export function loadConfig(env = process.env) {
     credentialKey: key,
     webhookSigningSecret: env.WEBHOOK_SIGNING_SECRET,
     publicApiUrl: env.PUBLIC_API_URL.replace(/\/$/, ''),
-    logLevel: env.LOG_LEVEL || 'info'
+    logLevel: env.LOG_LEVEL || 'info',
+    google: {
+      clientId: env.GOOGLE_CLIENT_ID || '',
+      clientSecret: env.GOOGLE_CLIENT_SECRET || '',
+      redirectUri: env.GOOGLE_REDIRECT_URI || ''
+    },
+    microsoft: {
+      clientId: env.MICROSOFT_CLIENT_ID || '',
+      clientSecret: env.MICROSOFT_CLIENT_SECRET || '',
+      tenant: env.MICROSOFT_TENANT || 'common',
+      redirectUri: env.MICROSOFT_REDIRECT_URI || ''
+    },
+    openai: {
+      apiKey: env.OPENAI_API_KEY || '',
+      researchModel: env.OPENAI_RESEARCH_MODEL || 'o3-deep-research'
+    }
   });
 }
