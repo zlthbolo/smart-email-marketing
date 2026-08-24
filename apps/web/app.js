@@ -124,10 +124,10 @@ function overview() {
   const contacts = read(keys.contacts);
   const campaigns = read(keys.campaigns);
   const actions = [];
-  if (!state.mailboxes.length) actions.push({ page: 'mailboxes', title: 'أضف حساب مرسل على الهاتف' });
-  else if (!state.mailboxes.some((mailbox) => mailbox.status === 'healthy')) actions.push({ page: 'mailboxes', title: 'تحقق من حساب المرسل فعليًا' });
-  if (!contacts.length) actions.push({ page: 'contacts', title: 'أضف جمهورًا لديه موافقة' });
-  if (!campaigns.length) actions.push({ page: 'campaigns', title: 'جهّز أول مسودة محلية' });
+  if (!state.mailboxes.length) actions.push({ page: 'mailboxes', title: 'إضافة مرسل' });
+  else if (!state.mailboxes.some((mailbox) => mailbox.status === 'healthy')) actions.push({ page: 'mailboxes', title: 'تحقق من المرسل' });
+  if (!contacts.length) actions.push({ page: 'contacts', title: 'إضافة الجمهور' });
+  if (!campaigns.length) actions.push({ page: 'campaigns', title: 'إنشاء حملة' });
   const universities = Object.values(contacts.reduce((all, contact) => {
     const name = contact.university || 'بدون جامعة';
     all[name] ||= { university: name, contacts: 0, specializations: new Set(), accepted: 0, replies: 0 };
@@ -223,7 +223,7 @@ function item(title, meta, actions = '') {
 }
 
 function showPage(name) {
-  const labels = { overview: 'نظرة عامة', mailboxes: 'حسابات المرسلين', contacts: 'الجمهور', campaigns: 'الحملات', inbox: 'صندوق الردود', research: 'الجامعات والبحث', outbox: 'صندوق الاختبار', settings: 'الإعدادات' };
+  const labels = { overview: 'الرئيسية', mailboxes: 'المرسلون', contacts: 'الجمهور', campaigns: 'الحملات', inbox: 'الردود', research: 'الجامعات', outbox: 'الاختبار', settings: 'الإعدادات' };
   $$('[data-view]').forEach((view) => view.classList.toggle('hidden', view.dataset.view !== name));
   $$('[data-page]').forEach((button) => button.classList.toggle('active', button.dataset.page === name));
   $('#pageTitle').textContent = labels[name];
@@ -232,8 +232,8 @@ function showPage(name) {
 }
 
 async function loadHealth() {
-  $('#postgresStatus').textContent = 'محلي'; $('#postgresDetail').textContent = 'داخل هذا الهاتف';
-  $('#redisStatus').textContent = 'مباشر'; $('#redisDetail').textContent = 'بلا خادم تسجيل';
+  $('#postgresStatus').textContent = 'محلي'; $('#postgresDetail').textContent = 'الهاتف';
+  $('#redisStatus').textContent = 'مباشر'; $('#redisDetail').textContent = 'محلي';
   $('#systemDot').classList.add('healthy');
 }
 
@@ -244,9 +244,9 @@ async function loadMailboxes() {
     `${mailbox.display_name || mailbox.email} — ${mailbox.email}`,
     `${providerLabel(mailbox.provider)} · ${statusLabel(mailbox.status)} · ${mailbox.sent_today}/${mailbox.effective_daily_limit} اليوم${mailbox.last_error ? ` · ${mailbox.last_error}` : ''}`,
     `<button data-verify="${mailbox.id}">تحقق الآن</button><button data-test="${mailbox.id}">اختبار إرسال</button><button class="danger" data-delete-mailbox="${mailbox.id}">حذف</button>`
-  )).join('') : '<p class="empty">لا توجد حسابات مرسلين بعد. استخدم النموذج لإضافة أول حساب.</p>';
+  )).join('') : '<p class="empty">لا يوجد مرسلون.</p>';
   const healthy = state.mailboxes.filter((mailbox) => mailbox.status === 'healthy');
-  $('#campaignMailbox').innerHTML = healthy.length ? healthy.map((mailbox) => `<option value="${mailbox.id}">${escapeHtml(mailbox.email)} — ${escapeHtml(providerLabel(mailbox.provider))}</option>`).join('') : '<option value="">تحقق من حساب مرسل أولًا</option>';
+  $('#campaignMailbox').innerHTML = healthy.length ? healthy.map((mailbox) => `<option value="${mailbox.id}">${escapeHtml(mailbox.email)} — ${escapeHtml(providerLabel(mailbox.provider))}</option>`).join('') : '<option value="">اختر مرسلًا متحققًا</option>';
 }
 
 async function loadContacts() {
@@ -258,36 +258,36 @@ async function loadCampaigns() {
   state.campaigns = await api('/campaigns');
   $('#campaignList').innerHTML = state.campaigns.length ? state.campaigns.map((campaign) => item(
     campaign.name,
-    `${statusLabel(campaign.status)} · ${campaign.recipients} مستلم · ${campaign.mailbox_email || 'بلا مرسل'} · محفوظة على الهاتف`,
+    `${statusLabel(campaign.status)} · ${campaign.recipients} مستلم · ${campaign.mailbox_email || 'بلا مرسل'}`,
     `<button data-preflight="${campaign.id}">فحص الجاهزية</button><button data-analytics="${campaign.id}">التحليلات</button><button class="primary" data-schedule="${campaign.id}">محاولة الإطلاق</button>`
-  )).join('') : '<p class="empty">لا توجد مسودات حملات.</p>';
+  )).join('') : '<p class="empty">لا توجد حملات.</p>';
 }
 
 async function loadInsights() {
   const data = await api('/insights/overview');
   $('#contactCount').textContent = data.summary.contacts;
-  $('#nextActions').innerHTML = data.actions.length ? data.actions.map((action, index) => `<button class="action-card" data-action-page="${action.page}"><b>${index + 1}</b><span>${escapeHtml(action.title)}</span><i>انتقل</i></button>`).join('') : '<p class="empty">البيانات المحلية جاهزة.</p>';
-  $('#universityInsights').innerHTML = data.universities.length ? data.universities.map((university) => `<article><div><strong>${escapeHtml(university.university)}</strong><small>${university.contacts} جهة · ${university.specializations} تخصص</small></div><span>محلي</span></article>`).join('') : '<p class="empty">أضف الجمهور لرؤية توزيع الجامعات.</p>';
+  $('#nextActions').innerHTML = data.actions.length ? data.actions.map((action, index) => `<button class="action-card" data-action-page="${action.page}"><b>${index + 1}</b><span>${escapeHtml(action.title)}</span><i>فتح</i></button>`).join('') : '<p class="empty">جاهز.</p>';
+  $('#universityInsights').innerHTML = data.universities.length ? data.universities.map((university) => `<article><div><strong>${escapeHtml(university.university)}</strong><small>${university.contacts} جهة · ${university.specializations} تخصص</small></div></article>`).join('') : '<p class="empty">لا توجد جامعات.</p>';
 }
 
 async function loadKnowledge() {
   const [universities, research] = await Promise.all([api('/knowledge/universities'), api('/knowledge/research')]);
   state.universities = universities; state.research = research;
-  $('#researchUniversity').innerHTML = universities.length ? universities.map((university) => `<option value="${university.id}">${escapeHtml(university.name)}</option>`).join('') : '<option value="">أضف جامعة أولًا</option>';
-  $('#researchList').innerHTML = '<p class="empty">لا توجد نتائج بحث وهمية. البحث العميق يحتاج مزودًا خارجيًا.</p>';
+  $('#researchUniversity').innerHTML = universities.length ? universities.map((university) => `<option value="${university.id}">${escapeHtml(university.name)}</option>`).join('') : '<option value="">اختر جامعة</option>';
+  $('#researchList').innerHTML = '<p class="empty">لا توجد نتائج.</p>';
 }
 
 async function loadOutbox() {
   try {
     state.outbox = await api('/mailboxes/test-outbox/messages');
-    $('#outboxList').innerHTML = state.outbox.length ? state.outbox.map((message) => item(message.subject, `${message.recipient} · ${formatDate(message.created_at)}`, `<button data-outbox="${message.id}">عرض</button>`)).join('') : '<p class="empty">لا توجد رسائل اختبار محلية.</p>';
+    $('#outboxList').innerHTML = state.outbox.length ? state.outbox.map((message) => item(message.subject, `${message.recipient} · ${formatDate(message.created_at)}`, `<button data-outbox="${message.id}">عرض</button>`)).join('') : '<p class="empty">لا توجد رسائل.</p>';
   } catch (error) { notice(error.message, 'error'); }
 }
 
 async function loadInbox() {
   state.inbox = await api('/inbox');
   $('#inboxBadge').classList.add('hidden');
-  $('#inboxList').innerHTML = '<div class="panel empty-state"><h2>لا توجد ردود محلية</h2><p>قراءة ردود Gmail أو Microsoft تلقائيًا تحتاج OAuth وخدمة استقبال؛ لن نعرض بيانات وهمية.</p></div>';
+  $('#inboxList').innerHTML = '<div class="panel empty-state"><h2>لا توجد ردود.</h2></div>';
 }
 
 async function refreshAll() {
@@ -296,7 +296,7 @@ async function refreshAll() {
 }
 
 $$('[data-page]').forEach((button) => button.addEventListener('click', () => showPage(button.dataset.page)));
-$('#refreshAll').addEventListener('click', async () => { await refreshAll(); notice('تم تحديث البيانات المحلية من الهاتف.'); });
+$('#refreshAll').addEventListener('click', async () => { await refreshAll(); notice('تم التحديث.'); });
 $('#refreshInbox').addEventListener('click', loadInbox);
 $('#inboxIntent').addEventListener('change', loadInbox);
 $('#inboxState').addEventListener('change', loadInbox);
@@ -313,7 +313,7 @@ $('#mailboxForm').addEventListener('submit', async (event) => {
     const body = formData(event.currentTarget); body.secure = event.currentTarget.secure.checked;
     await api('/mailboxes', { method: 'POST', body });
     event.currentTarget.password.value = ''; event.currentTarget.apiKey.value = '';
-    notice(isNative ? 'حُفظ الحساب مشفّرًا على الهاتف. اضغط «تحقق الآن» قبل استخدامه.' : 'حُفظت بيانات الحساب العامة فقط؛ التحقق والأسرار متاحان في APK.');
+    notice(isNative ? 'تم الحفظ. اضغط «تحقق الآن».' : 'تم الحفظ.');
     await Promise.all([loadMailboxes(), loadInsights()]);
   } catch (error) { notice(error.message, 'error'); }
 });
@@ -321,18 +321,18 @@ $('#mailboxForm').addEventListener('submit', async (event) => {
 function smtpPreset({ host, port, secure, label }) {
   const form = $('#mailboxForm'); form.provider.value = 'smtp'; updateProviderFields('smtp');
   form.host.value = host; form.port.value = port; form.secure.checked = secure;
-  form.email.focus(); notice(`${label}: اكتب البريد وكلمة مرور تطبيق جديدة ثم اضغط حفظ محليًا.`);
+  form.email.focus(); notice(label);
 }
 
-$('#googleConnect').addEventListener('click', () => smtpPreset({ host: 'smtp.gmail.com', port: 465, secure: true, label: 'تم تجهيز Gmail' }));
-$('#microsoftConnect').addEventListener('click', () => smtpPreset({ host: 'smtp.office365.com', port: 587, secure: false, label: 'تم تجهيز Microsoft؛ يجب أن يكون SMTP AUTH مفعّلًا في الحساب' }));
+$('#googleConnect').addEventListener('click', () => smtpPreset({ host: 'smtp.gmail.com', port: 465, secure: true, label: 'Gmail' }));
+$('#microsoftConnect').addEventListener('click', () => smtpPreset({ host: 'smtp.office365.com', port: 587, secure: false, label: 'Microsoft' }));
 
-$('#contactForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const contacts = JSON.parse(formData(event.currentTarget).contacts); const result = await api('/contacts/import', { method: 'POST', body: { contacts } }); notice(`تم حفظ ${result.imported} جهة محليًا.`); await Promise.all([loadContacts(), loadInsights()]); } catch (error) { notice(error.message, 'error'); } });
+$('#contactForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const contacts = JSON.parse(formData(event.currentTarget).contacts); const result = await api('/contacts/import', { method: 'POST', body: { contacts } }); notice(`تم استيراد ${result.imported}.`); await Promise.all([loadContacts(), loadInsights()]); } catch (error) { notice(error.message, 'error'); } });
 
-$('#campaignForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const body = formData(event.currentTarget); body.segment = { university: body.university || undefined, specialization: body.specialization || undefined }; body.maxJitterSeconds = Number(body.maxJitterSeconds); delete body.university; delete body.specialization; await api('/campaigns', { method: 'POST', body }); notice('حُفظت المسودة على الهاتف. لم تُرسل أي رسالة.'); event.currentTarget.reset(); await Promise.all([loadCampaigns(), loadInsights()]); } catch (error) { notice(error.message, 'error'); } });
+$('#campaignForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const body = formData(event.currentTarget); body.segment = { university: body.university || undefined, specialization: body.specialization || undefined }; body.maxJitterSeconds = Number(body.maxJitterSeconds); delete body.university; delete body.specialization; await api('/campaigns', { method: 'POST', body }); notice('تم الحفظ.'); event.currentTarget.reset(); await Promise.all([loadCampaigns(), loadInsights()]); } catch (error) { notice(error.message, 'error'); } });
 $('#generateCampaign').addEventListener('click', async () => { try { await api('/knowledge/agent/draft-campaign', { method: 'POST', body: {} }); } catch (error) { notice(error.message, 'error'); } });
 
-$('#universityForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/knowledge/universities', { method: 'POST', body: formData(event.currentTarget) }); notice('حُفظت الجامعة على الهاتف.'); event.currentTarget.reset(); await loadKnowledge(); } catch (error) { notice(error.message, 'error'); } });
+$('#universityForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/knowledge/universities', { method: 'POST', body: formData(event.currentTarget) }); notice('تمت الإضافة.'); event.currentTarget.reset(); await loadKnowledge(); } catch (error) { notice(error.message, 'error'); } });
 $('#researchForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/knowledge/research', { method: 'POST', body: formData(event.currentTarget) }); } catch (error) { notice(error.message, 'error'); } });
 
 document.addEventListener('click', async (event) => {

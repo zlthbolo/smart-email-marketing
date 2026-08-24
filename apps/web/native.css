@@ -1,24 +1,37 @@
 @media (max-width: 900px) {
-  .native .app main { padding-bottom: 92px; }
+  .native .app main {
+    padding: 18px 16px calc(96px + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
   .native .app aside {
     position: fixed;
     z-index: 20;
     inset: auto 0 0;
     width: 100%;
-    height: auto;
-    padding: 7px max(8px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 5px;
+    height: calc(68px + env(safe-area-inset-bottom));
+    padding: 6px max(8px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+    display: block;
+    overflow: hidden;
+    box-shadow: 0 -8px 24px #10271f24;
   }
   .native aside .logo { display: none; }
-  .native aside nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-  .native aside nav::-webkit-scrollbar { display: none; }
-  .native aside nav button { flex: 0 0 auto; white-space: nowrap; padding: 10px; }
-  .native aside .logout { margin: 0; padding: 10px; white-space: nowrap; }
-  .native .auth-shell {
-    padding-top: calc(24px + env(safe-area-inset-top));
-    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  .native aside nav {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 56px;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
   }
+  .native aside nav::-webkit-scrollbar { display: none; }
+  .native aside nav button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    white-space: nowrap;
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .native dialog { max-height: calc(100dvh - 110px); overflow: auto; }
 }

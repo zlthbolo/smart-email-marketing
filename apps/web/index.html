@@ -1,11 +1,167 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>جريد سوفت</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="native.css"></head><body>
-<div id="appView" class="app"><aside><div class="logo">جريد <span>سوفت</span></div><nav><button data-page="overview" class="active">نظرة عامة</button><button data-page="mailboxes">حسابات المرسلين</button><button data-page="contacts">الجمهور</button><button data-page="campaigns">الحملات</button><button data-page="inbox">صندوق الردود <span id="inboxBadge" class="nav-count hidden">0</span></button><button data-page="research">الجامعات والبحث</button><button data-page="outbox">صندوق الاختبار</button><button data-page="settings">الإعدادات</button></nav><div class="local-device-note">أداة شخصية<br><small>البيانات على هذا الهاتف</small></div></aside><main><header><div><p class="eyebrow" id="pageEyebrow">أداة محلية خاصة</p><h1 id="pageTitle">نظرة عامة</h1></div><div class="user"><span id="userName">جريد سوفت</span><i id="systemDot" class="healthy"></i></div></header><div id="notice"></div>
-<section data-view="overview"><div class="hero-panel"><div><p class="eyebrow">جاهز فور فتح التطبيق</p><h2>لا تسجيل دخول ولا حساب خادم</h2><p>أضف حسابات المرسلين واحفظ بياناتك محليًا على هاتفك.</p></div><button id="refreshAll">تحديث البيانات</button></div><div class="metrics"><article><p>تخزين التطبيق</p><h2 id="postgresStatus">محلي</h2><small id="postgresDetail">هذا الهاتف</small></article><article><p>طريقة التشغيل</p><h2 id="redisStatus">مباشر</h2><small id="redisDetail">بلا خادم تسجيل</small></article><article><p>المرسلون المتحققون</p><h2 id="mailboxCount">0</h2><small>بعد تحقق فعلي</small></article><article><p>الجمهور المسموح</p><h2 id="contactCount">0</h2><small>موافقة سارية</small></article></div><div class="decision-grid"><div class="panel"><div class="section-title"><div><p class="eyebrow">نفّذ الآن</p><h2>الخطوات المقترحة</h2></div></div><div id="nextActions" class="action-list"></div></div><div class="panel"><div class="section-title"><div><p class="eyebrow">ذكاء الجمهور</p><h2>الجامعات والتفاعل</h2></div></div><div id="universityInsights" class="insight-list"></div></div></div><div class="panel truth"><h2>حالة حقيقية فقط</h2><p>يظهر نجاح التحقق أو الاختبار فقط بعد رد حقيقي من مزود البريد. كلمات المرور ومفاتيح API محفوظة مشفّرة داخل أندرويد ولا تظهر في القائمة.</p></div></section>
-<section data-view="mailboxes" class="hidden"><div class="toolbar"><button id="googleConnect">إعداد Gmail بسرعة</button><button id="microsoftConnect">إعداد Microsoft بسرعة</button></div><div class="split"><form id="mailboxForm" class="panel form"><h2>إضافة حساب مرسل</h2><p class="hint">يُحفظ الحساب على هذا الهاتف فقط. استخدم كلمة مرور تطبيق جديدة، ولا تستخدم كلمة مرور حسابك الأساسية.</p><select name="provider"><option value="test_sink">صندوق اختبار محلي</option><option value="smtp">Gmail أو SMTP مباشر</option><option value="api">Resend أو Postmark API</option></select><input name="displayName" placeholder="اسم المرسل"><input name="email" type="email" placeholder="البريد" required><div class="smtp-only hidden"><input name="host" placeholder="عنوان SMTP"><input name="port" type="number" value="587" aria-label="منفذ الخادم"><input name="username" placeholder="اسم مستخدم SMTP"><input name="password" type="password" autocomplete="new-password" placeholder="كلمة مرور التطبيق"><label><input name="secure" type="checkbox"> اتصال SSL مباشر (عادة 465)</label></div><div class="api-only hidden"><select name="apiKind"><option value="resend">ريسند</option><option value="postmark">بوست مارك</option></select><input name="apiKey" type="password" autocomplete="new-password" placeholder="مفتاح مزود الإرسال"></div><input name="dailyLimit" type="number" value="25" min="1" aria-label="الحد اليومي"><button class="primary">حفظ محليًا</button></form><div class="panel"><h2>حسابات المرسلين</h2><div id="mailboxList" class="list"></div></div></div></section>
-<section data-view="contacts" class="hidden"><div class="split"><form id="contactForm" class="panel form"><h2>استيراد الجمهور</h2><p class="hint">الصق بيانات الجمهور بالصيغة المنظمة. يجب تسجيل أساس الموافقة ومصدرها لكل عنوان.</p><textarea name="contacts" rows="12">[{"email":"student@example.com","firstName":"طالب","university":"جامعة لوسيل","specialization":"إدارة الأعمال","consentBasis":"explicit_opt_in","consentSource":"نموذج التسجيل"}]</textarea><button class="primary">استيراد / تحديث</button></form><div class="panel"><h2>جهات الاتصال</h2><div id="contactList" class="list"></div></div></div></section>
-<section data-view="campaigns" class="hidden"><div class="journey"><span class="active">١. اختر الجامعة</span><span>٢. اكتب الرسالة</span><span>٣. احفظ المسودة</span><span>٤. افحص الجاهزية</span></div><div class="split"><form id="campaignForm" class="panel form"><h2>مسودة حملة جامعية</h2><p class="hint">احفظ المسودة والجمهور محليًا. هذه النسخة لا تطلق حملة في الخلفية بعد إغلاق الهاتف.</p><input name="university" placeholder="الجامعة المستهدفة"><input name="specialization" placeholder="التخصص المستهدف (اختياري)"><textarea name="aiBrief" rows="3" placeholder="ملاحظاتك عن هدف الرسالة"></textarea><button id="generateCampaign" type="button">اقتراح بالذكاء الاصطناعي (غير مفعّل محليًا)</button><input name="name" placeholder="اسم الحملة" required><select name="mailboxId" id="campaignMailbox" required></select><input name="senderName" placeholder="اسم المرسل الظاهر" required><input name="subject" placeholder="عنوان الرسالة — يدعم {{first_name}}" required><textarea name="html" rows="6" placeholder="محتوى الرسالة" required></textarea><textarea name="text" rows="4" placeholder="النص البديل"></textarea><input name="physicalAddress" placeholder="العنوان البريدي القانوني" required><label class="field-label">الفاصل العشوائي الآمن بالثواني<input name="maxJitterSeconds" type="number" value="120" min="0" max="3600"></label><button class="primary">حفظ المسودة محليًا</button></form><div class="panel"><h2>الحملات</h2><p class="hint">لن تظهر حالة إرسال لأن النسخة المحلية تحفظ المسودات فقط.</p><div id="campaignList" class="list"></div></div></div></section>
-<section data-view="inbox" class="hidden"><div class="inbox-head panel"><div><p class="eyebrow">الردود الواردة من المزود</p><h2>صندوق ردود موحّد</h2><p class="hint">التصنيف مساعد للفرز فقط. الردود المهمة تبقى بانتظار مراجعة بشرية، ولا تظهر رسالة بلا حدث حقيقي.</p></div><div class="toolbar inbox-filters"><select id="inboxIntent" aria-label="تصفية حسب النية"><option value="">كل التصنيفات</option><option value="interested">مهتم</option><option value="question">سؤال</option><option value="not_interested">غير مهتم</option><option value="out_of_office">خارج المكتب</option><option value="unsubscribe">إلغاء الاشتراك</option><option value="unknown">غير واضح</option></select><select id="inboxState" aria-label="تصفية حسب المراجعة"><option value="unhandled">تحتاج مراجعة</option><option value="handled">تمت مراجعتها</option><option value="">الكل</option></select><button id="refreshInbox">تحديث الردود</button></div></div><div id="inboxList" class="inbox-list"></div></section>
-<section data-view="research" class="hidden"><div class="split"><div><form id="universityForm" class="panel form"><h2>جامعة</h2><input name="name" placeholder="اسم الجامعة" required><input name="officialUrl" type="url" placeholder="https://university.edu" required><input name="countryCode" placeholder="QA"><button class="primary">إضافة</button></form><form id="researchForm" class="panel form"><h2>بحث عميق</h2><select name="universityId" id="researchUniversity" required></select><textarea name="objective" rows="5" placeholder="مثال: اجمع البرامج والمواعيد واحتياجات الطلاب مع المصادر" required></textarea><select name="mode"><option value="official">الموقع الرسمي أولًا</option><option value="broad">رسمي + مصادر خارجية</option></select><button class="primary">بدء البحث</button></form></div><div class="panel"><h2>نتائج البحث</h2><div id="researchList" class="list"></div></div></div></section>
-<section data-view="outbox" class="hidden"><div class="panel"><h2>رسائل الاختبار المحلية</h2><p class="hint">هذه الرسائل مخزنة داخل النظام ولم تُرسل إلى الإنترنت.</p><div id="outboxList" class="list"></div></div></section>
-<section data-view="settings" class="hidden"><div class="panel"><h2>التشغيل المحلي</h2><p>هذه النسخة لا تحتوي تسجيل دخول ولا تتصل بخادم حسابات. بيانات الجمهور والمسودات محفوظة على الهاتف، وأسرار المرسلين محفوظة داخل مخزن أندرويد المشفّر.</p><p class="hint">لأنها أداة هاتف، لا يمكن ضمان حملات مجدولة بعد إغلاق التطبيق. التحقق واختبار الإرسال المباشر يعملان أثناء فتح التطبيق.</p><small id="localStorageState">جاهز على هذا الهاتف</small></div></section>
-</main></div><dialog id="dialog"><div id="dialogBody"></div><button onclick="dialog.close()">إغلاق</button></dialog><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>جريد سوفت</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="native.css">
+</head>
+<body>
+<div id="appView" class="app">
+  <aside>
+    <div class="logo">جريد <span>سوفت</span></div>
+    <nav>
+      <button data-page="overview" class="active">الرئيسية</button>
+      <button data-page="mailboxes">المرسلون</button>
+      <button data-page="contacts">الجمهور</button>
+      <button data-page="campaigns">الحملات</button>
+      <button data-page="inbox">الردود <span id="inboxBadge" class="nav-count hidden">0</span></button>
+      <button data-page="research">الجامعات</button>
+      <button data-page="outbox">الاختبار</button>
+      <button data-page="settings">الإعدادات</button>
+    </nav>
+  </aside>
+
+  <main>
+    <header>
+      <div>
+        <p id="pageEyebrow" class="hidden"></p>
+        <h1 id="pageTitle">الرئيسية</h1>
+      </div>
+      <div class="user hidden" aria-hidden="true"><span id="userName"></span><i id="systemDot" class="healthy"></i></div>
+    </header>
+    <div id="notice"></div>
+
+    <section data-view="overview">
+      <div class="page-actions"><button id="refreshAll">تحديث</button></div>
+      <div class="metrics">
+        <article><p>التخزين</p><h2 id="postgresStatus">محلي</h2><small id="postgresDetail">الهاتف</small></article>
+        <article><p>التشغيل</p><h2 id="redisStatus">مباشر</h2><small id="redisDetail">محلي</small></article>
+        <article><p>المرسلون</p><h2 id="mailboxCount">0</h2></article>
+        <article><p>الجمهور</p><h2 id="contactCount">0</h2></article>
+      </div>
+      <div class="decision-grid">
+        <div class="panel"><h2>الخطوات</h2><div id="nextActions" class="action-list"></div></div>
+        <div class="panel"><h2>الجامعات</h2><div id="universityInsights" class="insight-list"></div></div>
+      </div>
+    </section>
+
+    <section data-view="mailboxes" class="hidden">
+      <div class="toolbar">
+        <button id="googleConnect">Gmail</button>
+        <button id="microsoftConnect">Microsoft</button>
+      </div>
+      <div class="split">
+        <form id="mailboxForm" class="panel form">
+          <h2>إضافة مرسل</h2>
+          <select name="provider">
+            <option value="test_sink">اختبار محلي</option>
+            <option value="smtp">SMTP</option>
+            <option value="api">API</option>
+          </select>
+          <input name="displayName" placeholder="اسم المرسل">
+          <input name="email" type="email" placeholder="البريد" required>
+          <div class="smtp-only hidden">
+            <input name="host" placeholder="خادم SMTP">
+            <input name="port" type="number" value="587" aria-label="المنفذ">
+            <input name="username" placeholder="اسم المستخدم">
+            <input name="password" type="password" autocomplete="new-password" placeholder="كلمة مرور التطبيق">
+            <label class="compact-check"><input name="secure" type="checkbox"> SSL</label>
+          </div>
+          <div class="api-only hidden">
+            <select name="apiKind"><option value="resend">Resend</option><option value="postmark">Postmark</option></select>
+            <input name="apiKey" type="password" autocomplete="new-password" placeholder="API Key">
+          </div>
+          <label class="field-label">الحد اليومي<input name="dailyLimit" type="number" value="25" min="1"></label>
+          <button class="primary">حفظ</button>
+        </form>
+        <div class="panel"><h2>المرسلون</h2><div id="mailboxList" class="list"></div></div>
+      </div>
+    </section>
+
+    <section data-view="contacts" class="hidden">
+      <div class="split">
+        <form id="contactForm" class="panel form">
+          <h2>استيراد الجمهور</h2>
+          <textarea name="contacts" rows="12" placeholder="بيانات الجمهور"></textarea>
+          <button class="primary">استيراد</button>
+        </form>
+        <div class="panel"><h2>الجمهور</h2><div id="contactList" class="list"></div></div>
+      </div>
+    </section>
+
+    <section data-view="campaigns" class="hidden">
+      <div class="split">
+        <form id="campaignForm" class="panel form">
+          <h2>حملة جديدة</h2>
+          <input name="university" placeholder="الجامعة">
+          <input name="specialization" placeholder="التخصص">
+          <textarea name="aiBrief" rows="3" placeholder="ملاحظات"></textarea>
+          <button id="generateCampaign" type="button" class="hidden"></button>
+          <input name="name" placeholder="اسم الحملة" required>
+          <select name="mailboxId" id="campaignMailbox" required></select>
+          <input name="senderName" placeholder="اسم المرسل" required>
+          <input name="subject" placeholder="العنوان" required>
+          <textarea name="html" rows="6" placeholder="الرسالة" required></textarea>
+          <textarea name="text" rows="4" placeholder="النص البديل"></textarea>
+          <input name="physicalAddress" placeholder="العنوان البريدي" required>
+          <label class="field-label">الفاصل بالثواني<input name="maxJitterSeconds" type="number" value="120" min="0" max="3600"></label>
+          <button class="primary">حفظ</button>
+        </form>
+        <div class="panel"><h2>الحملات</h2><div id="campaignList" class="list"></div></div>
+      </div>
+    </section>
+
+    <section data-view="inbox" class="hidden">
+      <div class="inbox-head panel">
+        <h2>الردود</h2>
+        <div class="toolbar inbox-filters">
+          <select id="inboxIntent" aria-label="التصنيف">
+            <option value="">الكل</option><option value="interested">مهتم</option><option value="question">سؤال</option>
+            <option value="not_interested">غير مهتم</option><option value="out_of_office">خارج المكتب</option>
+            <option value="unsubscribe">إلغاء الاشتراك</option><option value="unknown">غير واضح</option>
+          </select>
+          <select id="inboxState" aria-label="الحالة"><option value="unhandled">جديدة</option><option value="handled">مراجَعة</option><option value="">الكل</option></select>
+          <button id="refreshInbox">تحديث</button>
+        </div>
+      </div>
+      <div id="inboxList" class="inbox-list"></div>
+    </section>
+
+    <section data-view="research" class="hidden">
+      <div class="split">
+        <div>
+          <form id="universityForm" class="panel form">
+            <h2>إضافة جامعة</h2>
+            <input name="name" placeholder="الاسم" required>
+            <input name="officialUrl" type="url" placeholder="الموقع الرسمي" required>
+            <input name="countryCode" placeholder="رمز الدولة">
+            <button class="primary">إضافة</button>
+          </form>
+          <form id="researchForm" class="panel form">
+            <h2>بحث</h2>
+            <select name="universityId" id="researchUniversity" required></select>
+            <textarea name="objective" rows="5" placeholder="الهدف" required></textarea>
+            <select name="mode"><option value="official">رسمي</option><option value="broad">موسّع</option></select>
+            <button class="primary">بدء</button>
+          </form>
+        </div>
+        <div class="panel"><h2>النتائج</h2><div id="researchList" class="list"></div></div>
+      </div>
+    </section>
+
+    <section data-view="outbox" class="hidden">
+      <div class="panel"><h2>الاختبار</h2><div id="outboxList" class="list"></div></div>
+    </section>
+
+    <section data-view="settings" class="hidden">
+      <div class="panel"><h2>الوضع المحلي</h2><small id="localStorageState">جاهز</small></div>
+    </section>
+  </main>
+</div>
+
+<dialog id="dialog"><div id="dialogBody"></div><button onclick="dialog.close()">إغلاق</button></dialog>
+<script src="app.js"></script>
+</body>
+</html>
