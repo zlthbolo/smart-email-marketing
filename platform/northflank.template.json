@@ -5,6 +5,8 @@
   "description": "Private always-on Jareed Soft API and email worker with Redis and external Neon Postgres.",
   "arguments": {
     "DATABASE_URL": "",
+    "CREDENTIAL_ENCRYPTION_SECRET": "",
+    "WEBHOOK_SIGNING_SECRET": "",
     "GOOGLE_CLIENT_ID": "",
     "GOOGLE_CLIENT_SECRET": "",
     "MICROSOFT_CLIENT_ID": "",
@@ -80,8 +82,8 @@
                       "NODE_ENV": "production",
                       "API_PORT": "3001",
                       "DATABASE_URL": "${args.DATABASE_URL}",
-                      "CREDENTIAL_ENCRYPTION_KEY_BASE64": "${random.base64.32}",
-                      "WEBHOOK_SIGNING_SECRET": "${random.hex.32}",
+                      "CREDENTIAL_ENCRYPTION_SECRET": "${args.CREDENTIAL_ENCRYPTION_SECRET}",
+                      "WEBHOOK_SIGNING_SECRET": "${args.WEBHOOK_SIGNING_SECRET}",
                       "GOOGLE_CLIENT_ID": "${args.GOOGLE_CLIENT_ID}",
                       "GOOGLE_CLIENT_SECRET": "${args.GOOGLE_CLIENT_SECRET}",
                       "MICROSOFT_CLIENT_ID": "${args.MICROSOFT_CLIENT_ID}",
@@ -140,7 +142,7 @@
                   "vcsData": {
                     "projectType": "github",
                     "projectUrl": "https://github.com/zlthbolo/smart-email-marketing",
-                    "projectBranch": "codex/jareed-foundation"
+                    "projectBranch": "main"
                   },
                   "ports": [
                     {
@@ -222,7 +224,7 @@
                   "vcsData": {
                     "projectType": "github",
                     "projectUrl": "https://github.com/zlthbolo/smart-email-marketing",
-                    "projectBranch": "codex/jareed-foundation"
+                    "projectBranch": "main"
                   },
                   "ports": [],
                   "buildSettings": {
