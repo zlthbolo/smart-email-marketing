@@ -1,0 +1,1 @@
+After template import: verify Jareed Redis is running, Jareed API is running, Jareed Worker is running, open the API public domain, check /v1/health, create the first owner account, confirm second registration is rejected, add one test mailbox, perform a real provider test send, then test one campaign through the worker queue.
