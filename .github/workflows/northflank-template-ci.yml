@@ -1,0 +1,20 @@
+name: Northflank Template CI
+on:
+  push:
+    branches: [codex/jareed-foundation]
+    paths:
+      - 'platform/northflank.template.json'
+      - '.github/workflows/northflank-template-ci.yml'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON
+        run: python -m json.tool platform/northflank.template.json >/dev/null
+      - name: Assert free region and core resources
+        run: |
+          grep -q '"region": "europe-west"' platform/northflank.template.json
+          grep -q '"name": "Jareed API"' platform/northflank.template.json
+          grep -q '"name": "Jareed Worker"' platform/northflank.template.json
+          grep -q '"name": "Jareed Redis"' platform/northflank.template.json
