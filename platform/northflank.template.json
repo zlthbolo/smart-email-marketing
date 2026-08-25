@@ -4,7 +4,12 @@
   "name": "Jareed Soft",
   "description": "Private always-on Jareed Soft API and email worker with Redis and external Neon Postgres.",
   "arguments": {
-    "DATABASE_URL": ""
+    "DATABASE_URL": "",
+    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_CLIENT_SECRET": "",
+    "MICROSOFT_CLIENT_ID": "",
+    "MICROSOFT_CLIENT_SECRET": "",
+    "OPENAI_API_KEY": ""
   },
   "options": {
     "autorun": false,
@@ -20,7 +25,7 @@
           "ref": "project",
           "spec": {
             "name": "Jareed Soft",
-            "region": "us-west",
+            "region": "europe-west",
             "networking": {
               "allowedIngressProjects": []
             }
@@ -75,9 +80,14 @@
                       "NODE_ENV": "production",
                       "API_PORT": "3001",
                       "DATABASE_URL": "${args.DATABASE_URL}",
-                      "CREDENTIAL_ENCRYPTION_SECRET": "${fn.randomSecret(64, 'base64')}",
-                      "WEBHOOK_SIGNING_SECRET": "${fn.randomSecret(64, 'hex')}",
+                      "CREDENTIAL_ENCRYPTION_KEY_BASE64": "${random.base64.32}",
+                      "WEBHOOK_SIGNING_SECRET": "${random.hex.32}",
+                      "GOOGLE_CLIENT_ID": "${args.GOOGLE_CLIENT_ID}",
+                      "GOOGLE_CLIENT_SECRET": "${args.GOOGLE_CLIENT_SECRET}",
+                      "MICROSOFT_CLIENT_ID": "${args.MICROSOFT_CLIENT_ID}",
+                      "MICROSOFT_CLIENT_SECRET": "${args.MICROSOFT_CLIENT_SECRET}",
                       "MICROSOFT_TENANT": "common",
+                      "OPENAI_API_KEY": "${args.OPENAI_API_KEY}",
                       "OPENAI_RESEARCH_MODEL": "o3-deep-research",
                       "LOG_LEVEL": "info"
                     },
