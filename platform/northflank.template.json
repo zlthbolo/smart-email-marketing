@@ -1,0 +1,184 @@
+{
+  "$schema": "https://api.northflank.com/v1/schemas/template",
+  "apiVersion": "v1.2",
+  "name": "Smart Email Marketing",
+  "description": "Always-on API plus Redis for the private smart email marketing system, using Neon for PostgreSQL.",
+  "arguments": {
+    "DATABASE_URL": "SET_SECURELY_IN_NORTHFLANK",
+    "FRONTEND_URL": "*"
+  },
+  "argumentOverrides": {
+    "JWT_SECRET": "${fn.randomSecret(64, 'hex')}"
+  },
+  "options": {
+    "autorun": false,
+    "concurrencyPolicy": "queue"
+  },
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "Project",
+          "ref": "project",
+          "spec": {
+            "name": "Smart Email Marketing",
+            "region": "us-west",
+            "networking": {
+              "allowedIngressProjects": []
+            }
+          }
+        },
+        {
+          "kind": "Workflow",
+          "spec": {
+            "type": "sequential",
+            "context": {
+              "projectId": "${refs.project.id}"
+            },
+            "steps": [
+              {
+                "kind": "Addon",
+                "ref": "redis",
+                "spec": {
+                  "externalAccessEnabled": false,
+                  "type": "redis",
+                  "billing": {
+                    "replicas": 1,
+                    "storage": 6144,
+                    "storageClass": "nvme",
+                    "deploymentPlan": "nf-compute-20"
+                  },
+                  "tlsEnabled": false,
+                  "name": "Redis Queue",
+                  "version": "latest"
+                }
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "runtime-secrets",
+                "spec": {
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "secrets": {
+                    "variables": {
+                      "NODE_ENV": "production",
+                      "PORT": "3001",
+                      "DATABASE_URL": "${args.DATABASE_URL}",
+                      "JWT_SECRET": "${args.JWT_SECRET}",
+                      "JWT_EXPIRE": "24h",
+                      "FRONTEND_URL": "${args.FRONTEND_URL}",
+                      "LOG_LEVEL": "info"
+                    },
+                    "files": {}
+                  },
+                  "addonDependencies": [
+                    {
+                      "addonId": "${refs.redis.id}",
+                      "keys": [
+                        {
+                          "keyName": "REDIS_MASTER_URL",
+                          "aliases": [
+                            "REDIS_URL"
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "name": "Runtime Secrets",
+                  "restrictions": {
+                    "restricted": false,
+                    "nfObjects": [],
+                    "tags": []
+                  }
+                }
+              },
+              {
+                "kind": "CombinedService",
+                "ref": "api",
+                "spec": {
+                  "deployment": {
+                    "instances": 1,
+                    "storage": {
+                      "ephemeralStorage": {
+                        "storageSize": 1024
+                      },
+                      "shmSize": 64
+                    },
+                    "docker": {
+                      "configType": "default"
+                    }
+                  },
+                  "runtimeEnvironment": {},
+                  "runtimeFiles": {},
+                  "buildArguments": {},
+                  "buildFiles": {},
+                  "billing": {
+                    "deploymentPlan": "nf-compute-10",
+                    "buildPlan": "nf-compute-200-8"
+                  },
+                  "name": "Smart Email API",
+                  "vcsData": {
+                    "projectType": "github",
+                    "projectUrl": "https://github.com/zlthbolo/smart-email-marketing",
+                    "projectBranch": "main"
+                  },
+                  "ports": [
+                    {
+                      "internalPort": 3001,
+                      "protocol": "HTTP",
+                      "name": "api",
+                      "public": true,
+                      "domains": [],
+                      "security": {
+                        "policies": [],
+                        "credentials": []
+                      },
+                      "disableNfDomain": false
+                    }
+                  ],
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "kaniko",
+                      "useCache": true,
+                      "dockerWorkDir": "/backend",
+                      "dockerFilePath": "/backend/Dockerfile",
+                      "buildkit": {
+                        "useInternalCache": true,
+                        "internalCacheStorage": 16384
+                      }
+                    }
+                  },
+                  "disabledCI": false,
+                  "buildConfiguration": {
+                    "pathIgnoreRules": [
+                      "README.md",
+                      "platform/**"
+                    ],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": true
+                  },
+                  "healthChecks": [
+                    {
+                      "protocol": "HTTP",
+                      "type": "readinessProbe",
+                      "path": "/health",
+                      "port": 3001,
+                      "initialDelaySeconds": 15,
+                      "periodSeconds": 30,
+                      "timeoutSeconds": 5,
+                      "failureThreshold": 5,
+                      "successThreshold": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
