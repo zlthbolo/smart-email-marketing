@@ -1,8 +1,6 @@
 {
   "$schema": "https://api.northflank.com/v1/schemas/template",
   "apiVersion": "v1.2",
-  "name": "Jareed Soft",
-  "description": "Private always-on Jareed Soft API and email worker with Redis and external Neon Postgres.",
   "arguments": {
     "DATABASE_URL": "",
     "CREDENTIAL_ENCRYPTION_SECRET": "",
@@ -12,10 +10,6 @@
     "MICROSOFT_CLIENT_ID": "",
     "MICROSOFT_CLIENT_SECRET": "",
     "OPENAI_API_KEY": ""
-  },
-  "options": {
-    "autorun": false,
-    "concurrencyPolicy": "queue"
   },
   "spec": {
     "kind": "Workflow",
@@ -31,7 +25,8 @@
             "networking": {
               "allowedIngressProjects": []
             }
-          }
+          },
+          "updateMode": "put"
         },
         {
           "kind": "Workflow",
@@ -56,7 +51,8 @@
                   "tlsEnabled": false,
                   "name": "Jareed Redis",
                   "version": "latest"
-                }
+                },
+                "updateMode": "put"
               },
               {
                 "kind": "Condition",
@@ -101,7 +97,9 @@
                       "keys": [
                         {
                           "keyName": "REDIS_MASTER_URL",
-                          "aliases": ["REDIS_URL"]
+                          "aliases": [
+                            "REDIS_URL"
+                          ]
                         }
                       ]
                     }
@@ -110,9 +108,11 @@
                   "restrictions": {
                     "restricted": false,
                     "nfObjects": [],
-                    "tags": []
+                    "tags": [],
+                    "stageIds": []
                   }
-                }
+                },
+                "updateMode": "put"
               },
               {
                 "kind": "CombinedService",
@@ -179,7 +179,8 @@
                     "isAllowList": false,
                     "ciIgnoreFlagsEnabled": true
                   }
-                }
+                },
+                "updateMode": "put"
               },
               {
                 "kind": "Condition",
@@ -248,12 +249,24 @@
                     "isAllowList": false,
                     "ciIgnoreFlagsEnabled": true
                   }
-                }
+                },
+                "updateMode": "put"
               }
             ]
           }
         }
       ]
     }
+  },
+  "options": {
+    "autorun": false,
+    "concurrencyPolicy": "allow"
+  },
+  "gitops": {
+    "repoUrl": "https://github.com/zlthbolo/smart-email-marketing",
+    "vcsService": "github",
+    "accountLogin": "zlthbolo",
+    "branch": "main",
+    "filePath": "/platform/northflank.template.json"
   }
 }
