@@ -36,10 +36,14 @@
     <section data-view="overview">
       <div class="page-actions"><button id="refreshAll">تحديث</button></div>
       <div class="metrics">
-        <article><p>التخزين</p><h2 id="postgresStatus">محلي</h2><small id="postgresDetail">الهاتف</small></article>
-        <article><p>التشغيل</p><h2 id="redisStatus">مباشر</h2><small id="redisDetail">محلي</small></article>
         <article><p>المرسلون</p><h2 id="mailboxCount">0</h2></article>
+        <article><p>الحسابات السليمة</p><h2 id="healthyMailboxCount">0</h2></article>
+        <article><p>أُرسل اليوم</p><h2 id="sentTodayCount">0</h2><small id="dailyCapacity">0 / 0</small></article>
         <article><p>الجمهور</p><h2 id="contactCount">0</h2></article>
+        <article><p>الحملات</p><h2 id="campaignCount">0</h2></article>
+        <article><p>الجامعات</p><h2 id="universityCount">0</h2></article>
+        <article><p>الاختبارات</p><h2 id="outboxCount">0</h2></article>
+        <article><p>الردود</p><h2 id="replyCount">0</h2></article>
       </div>
       <div class="decision-grid">
         <div class="panel"><h2>الخطوات</h2><div id="nextActions" class="action-list"></div></div>
@@ -83,9 +87,19 @@
     <section data-view="contacts" class="hidden">
       <div class="split">
         <form id="contactForm" class="panel form">
-          <h2>استيراد الجمهور</h2>
-          <textarea name="contacts" rows="12" placeholder="بيانات الجمهور"></textarea>
-          <button class="primary">استيراد</button>
+          <h2>إضافة جهة</h2>
+          <input name="email" type="email" placeholder="البريد" required>
+          <input name="firstName" placeholder="الاسم">
+          <input name="university" placeholder="الجامعة">
+          <input name="specialization" placeholder="التخصص">
+          <select name="consentBasis" required>
+            <option value="explicit_opt_in">موافقة صريحة</option>
+            <option value="contractual">علاقة تعاقدية</option>
+            <option value="legitimate_interest">مصلحة مشروعة</option>
+            <option value="legal_obligation">التزام قانوني</option>
+          </select>
+          <input name="consentSource" placeholder="مصدر الموافقة" required>
+          <button class="primary">إضافة</button>
         </form>
         <div class="panel"><h2>الجمهور</h2><div id="contactList" class="list"></div></div>
       </div>
@@ -156,7 +170,21 @@
     </section>
 
     <section data-view="settings" class="hidden">
-      <div class="panel"><h2>الوضع المحلي</h2><small id="localStorageState">جاهز</small></div>
+      <div class="split settings-grid">
+        <form id="settingsForm" class="panel form">
+          <h2>الإعدادات</h2>
+          <input name="defaultSenderName" placeholder="اسم المرسل الافتراضي">
+          <input name="testRecipient" type="email" placeholder="مستلم الاختبار">
+          <label class="field-label">الحد اليومي الافتراضي<input name="defaultDailyLimit" type="number" min="1" max="500" value="25" required></label>
+          <label class="field-label">التذبذب الافتراضي بالثواني<input name="defaultJitterSeconds" type="number" min="0" max="3600" value="120" required></label>
+          <button class="primary">حفظ</button>
+        </form>
+        <div class="panel">
+          <h2>بيانات الهاتف</h2>
+          <div id="settingsStats" class="settings-stats"></div>
+          <button id="exportData" type="button">تصدير</button>
+        </div>
+      </div>
     </section>
   </main>
 </div>

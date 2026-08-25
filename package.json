@@ -5,6 +5,7 @@
   "workspaces": ["apps/api", "apps/mobile"],
   "scripts": {
     "test": "npm --workspace apps/api test",
+    "test:web": "node --test apps/web/test/*.test.mjs",
     "start": "npm --workspace apps/api start",
     "android:sync": "npm --workspace @jareed/mobile run sync",
     "android:build": "npm --workspace @jareed/mobile run build:debug"

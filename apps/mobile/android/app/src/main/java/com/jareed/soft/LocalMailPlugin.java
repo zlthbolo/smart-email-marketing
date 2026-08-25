@@ -22,6 +22,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
@@ -40,8 +43,11 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.mail.Message;
+import javax.mail.AuthenticationFailedException;
+import javax.mail.MessagingException;
 import javax.mail.Session;
 import javax.mail.Transport;
+import javax.net.ssl.SSLHandshakeException;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 
@@ -73,11 +79,11 @@ public class LocalMailPlugin extends Plugin {
             if (!provider.equals("smtp") && !provider.equals("api") && !provider.equals("test_sink")) throw new IllegalArgumentException("نوع المرسل غير مدعوم.");
             if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) throw new IllegalArgumentException("عنوان البريد غير صحيح.");
 
-            String host = clean(call.getString("host", ""));
+            String host = clean(call.getString("host", "")).toLowerCase(Locale.ROOT);
             String username = clean(call.getString("username", ""));
-            String password = call.getString("password", "");
-            String apiKind = clean(call.getString("apiKind", ""));
-            String apiKey = call.getString("apiKey", "");
+            String password = clean(call.getString("password", ""));
+            String apiKind = clean(call.getString("apiKind", "")).toLowerCase(Locale.ROOT);
+            String apiKey = clean(call.getString("apiKey", ""));
             Integer rawPort = call.getInt("port");
             Integer rawLimit = call.getInt("dailyLimit");
             Boolean rawSecure = call.getBoolean("secure");
@@ -86,11 +92,19 @@ public class LocalMailPlugin extends Plugin {
             boolean secure = rawSecure != null && rawSecure;
             if (dailyLimit < 1 || dailyLimit > 500) throw new IllegalArgumentException("الحد اليومي يجب أن يكون بين 1 و500.");
             if (provider.equals("smtp")) {
-                if (host.isEmpty() || port < 1 || port > 65535 || password == null || password.isEmpty()) throw new IllegalArgumentException("أدخل عنوان SMTP والمنفذ وكلمة مرور التطبيق.");
+                if (host.equals("smtp.gmail.com")) {
+                    password = password.replaceAll("\\s+", "");
+                    if (port == 465) secure = true;
+                    if (port == 587) secure = false;
+                }
+                if (host.equals("smtp.office365.com") || host.equals("smtp-mail.outlook.com")) { port = 587; secure = false; }
+                if (host.isEmpty() || port < 1 || port > 65535 || password.isEmpty()) throw new IllegalArgumentException("أدخل عنوان SMTP والمنفذ وكلمة مرور التطبيق.");
                 if (username.isEmpty()) username = email;
             }
             if (provider.equals("api")) {
-                if ((!apiKind.equals("resend") && !apiKind.equals("postmark")) || apiKey == null || apiKey.isEmpty()) throw new IllegalArgumentException("اختر Resend أو Postmark وأدخل مفتاح API.");
+                if ((!apiKind.equals("resend") && !apiKind.equals("postmark")) || apiKey.isEmpty()) throw new IllegalArgumentException("اختر Resend أو Postmark وأدخل مفتاح API.");
+                if (apiKind.equals("resend") && !apiKey.startsWith("re_")) throw new IllegalArgumentException("صيغة مفتاح Resend غير صحيحة.");
+                if (apiKind.equals("resend") && isPublicMailboxDomain(email)) throw new IllegalArgumentException("Resend لا يرسل من Gmail أو بريد عام. استخدم onboarding@resend.dev للاختبار، أو بريد نطاق موثّق.");
             }
 
             JSONArray mailboxes = readEncryptedArray(MAILBOXES);
@@ -111,10 +125,10 @@ public class LocalMailPlugin extends Plugin {
             mailbox.put("host", host);
             mailbox.put("port", port);
             mailbox.put("username", username);
-            mailbox.put("password", password == null ? "" : password);
+            mailbox.put("password", password);
             mailbox.put("secure", secure);
             mailbox.put("api_kind", apiKind);
-            mailbox.put("api_key", apiKey == null ? "" : apiKey);
+            mailbox.put("api_key", apiKey);
             mailbox.put("daily_limit", dailyLimit);
             mailbox.put("sent_today", 0);
             mailbox.put("sent_date", today());
@@ -150,12 +164,11 @@ public class LocalMailPlugin extends Plugin {
     public void verifyMailbox(PluginCall call) {
         String id = clean(call.getString("id", ""));
         EXECUTOR.execute(() -> {
-            JSONObject mailbox = null;
             try {
-                mailbox = requireMailbox(id);
+                JSONObject mailbox = requireMailbox(id);
                 String provider = mailbox.getString("provider");
                 if (provider.equals("smtp")) verifySmtp(mailbox);
-                else if (provider.equals("api")) verifyApi(mailbox);
+                else if (provider.equals("api")) { call.reject("تحقق API يتم بإرسال حقيقي. اضغط «تحقق بإرسال»."); return; }
                 else if (!provider.equals("test_sink")) throw new IllegalArgumentException("نوع المرسل غير مدعوم.");
                 updateMailboxStatus(id, "healthy", null);
                 JSObject result = new JSObject();
@@ -175,25 +188,33 @@ public class LocalMailPlugin extends Plugin {
         String recipient = clean(call.getString("to", "")).toLowerCase(Locale.ROOT);
         if (!Patterns.EMAIL_ADDRESS.matcher(recipient).matches()) { call.reject("عنوان المستلم غير صحيح."); return; }
         EXECUTOR.execute(() -> {
+            JSONObject mailbox = null;
+            boolean providerAttempted = false;
             try {
-                JSONObject mailbox = requireMailbox(id); resetDailyCounter(mailbox);
+                mailbox = requireMailbox(id); resetDailyCounter(mailbox);
                 int sentToday = mailbox.optInt("sent_today", 0);
                 int dailyLimit = mailbox.optInt("daily_limit", 25);
                 if (sentToday >= dailyLimit) throw new IllegalStateException("وصل الحساب إلى الحد اليومي المحلي.");
                 String provider = mailbox.getString("provider");
                 String messageId;
                 boolean accepted;
-                if (provider.equals("smtp")) { messageId = sendSmtp(mailbox, recipient); accepted = true; }
-                else if (provider.equals("api")) { messageId = sendApi(mailbox, recipient); accepted = true; }
+                if (provider.equals("smtp")) { providerAttempted = true; messageId = sendSmtp(mailbox, recipient); accepted = true; }
+                else if (provider.equals("api")) { providerAttempted = true; messageId = sendApi(mailbox, recipient); accepted = true; }
                 else if (provider.equals("test_sink")) { messageId = saveTestSink(recipient); accepted = false; }
                 else throw new IllegalArgumentException("نوع المرسل غير مدعوم.");
-                if (accepted) { mailbox.put("sent_today", sentToday + 1); replaceMailbox(mailbox); }
+                mailbox.put("status", "healthy");
+                mailbox.put("last_error", JSONObject.NULL);
+                if (accepted) mailbox.put("sent_today", sentToday + 1);
+                replaceMailbox(mailbox);
                 JSObject result = new JSObject();
                 result.put("provider", provider);
                 result.put("providerMessageId", messageId);
                 result.put("accepted", accepted);
                 call.resolve(result);
             } catch (Exception error) {
+                if (providerAttempted && mailbox != null) {
+                    try { updateMailboxStatus(id, "unhealthy", safeMessage(error)); } catch (Exception ignored) {}
+                }
                 call.reject("لم تُرسل الرسالة: " + safeMessage(error));
             }
         });
@@ -214,6 +235,7 @@ public class LocalMailPlugin extends Plugin {
         Session session = smtpSession(mailbox);
         Transport transport = session.getTransport("smtp");
         try { transport.connect(mailbox.getString("host"), mailbox.getInt("port"), mailbox.getString("username"), mailbox.getString("password")); }
+        catch (Exception error) { throw new IllegalStateException(smtpErrorMessage(mailbox, error), error); }
         finally { if (transport.isConnected()) transport.close(); }
     }
 
@@ -230,7 +252,8 @@ public class LocalMailPlugin extends Plugin {
         try {
             transport.connect(mailbox.getString("host"), mailbox.getInt("port"), mailbox.getString("username"), mailbox.getString("password"));
             transport.sendMessage(message, message.getAllRecipients());
-        } finally { if (transport.isConnected()) transport.close(); }
+        } catch (Exception error) { throw new IllegalStateException(smtpErrorMessage(mailbox, error), error); }
+        finally { if (transport.isConnected()) transport.close(); }
         return message.getMessageID() == null ? "smtp-accepted-" + UUID.randomUUID() : message.getMessageID();
     }
 
@@ -248,26 +271,23 @@ public class LocalMailPlugin extends Plugin {
         return Session.getInstance(properties);
     }
 
-    private void verifyApi(JSONObject mailbox) throws Exception {
-        String kind = mailbox.getString("api_kind");
-        if (kind.equals("resend")) httpJson("GET", "https://api.resend.com/domains", headers("Authorization", "Bearer " + mailbox.getString("api_key")), null);
-        else if (kind.equals("postmark")) httpJson("GET", "https://api.postmarkapp.com/server", headers("X-Postmark-Server-Token", mailbox.getString("api_key")), null);
-        else throw new IllegalArgumentException("مزود API غير مدعوم.");
-    }
-
     private String sendApi(JSONObject mailbox, String recipient) throws Exception {
         String kind = mailbox.getString("api_kind");
         String displayName = mailbox.optString("display_name", "");
         String from = displayName.isEmpty() ? mailbox.getString("email") : displayName + " <" + mailbox.getString("email") + ">";
-        if (kind.equals("resend")) {
-            JSONObject body = new JSONObject(); body.put("from", from); body.put("to", new JSONArray().put(recipient)); body.put("subject", "اختبار جريد سوفت"); body.put("text", "هذه رسالة اختبار حقيقية أُرسلت مباشرة من تطبيق جريد سوفت على هاتفك.");
-            JSONObject response = httpJson("POST", "https://api.resend.com/emails", headers("Authorization", "Bearer " + mailbox.getString("api_key")), body);
-            String value = response.optString("id", ""); if (value.isEmpty()) throw new IllegalStateException("لم يعِد Resend معرّف قبول."); return value;
-        }
-        if (kind.equals("postmark")) {
-            JSONObject body = new JSONObject(); body.put("From", from); body.put("To", recipient); body.put("Subject", "اختبار جريد سوفت"); body.put("TextBody", "هذه رسالة اختبار حقيقية أُرسلت مباشرة من تطبيق جريد سوفت على هاتفك."); body.put("MessageStream", "outbound");
-            JSONObject response = httpJson("POST", "https://api.postmarkapp.com/email", headers("X-Postmark-Server-Token", mailbox.getString("api_key")), body);
-            String value = response.optString("MessageID", ""); if (value.isEmpty()) throw new IllegalStateException("لم يعِد Postmark معرّف قبول."); return value;
+        try {
+            if (kind.equals("resend")) {
+                JSONObject body = new JSONObject(); body.put("from", from); body.put("to", new JSONArray().put(recipient)); body.put("subject", "اختبار جريد سوفت"); body.put("text", "هذه رسالة اختبار حقيقية أُرسلت مباشرة من تطبيق جريد سوفت على هاتفك.");
+                JSONObject response = httpJson("POST", "https://api.resend.com/emails", headers("Authorization", "Bearer " + mailbox.getString("api_key")), body);
+                String value = response.optString("id", ""); if (value.isEmpty()) throw new IllegalStateException("لم يعِد Resend معرّف قبول."); return value;
+            }
+            if (kind.equals("postmark")) {
+                JSONObject body = new JSONObject(); body.put("From", from); body.put("To", recipient); body.put("Subject", "اختبار جريد سوفت"); body.put("TextBody", "هذه رسالة اختبار حقيقية أُرسلت مباشرة من تطبيق جريد سوفت على هاتفك."); body.put("MessageStream", "outbound");
+                JSONObject response = httpJson("POST", "https://api.postmarkapp.com/email", headers("X-Postmark-Server-Token", mailbox.getString("api_key")), body);
+                String value = response.optString("MessageID", ""); if (value.isEmpty()) throw new IllegalStateException("لم يعِد Postmark معرّف قبول."); return value;
+            }
+        } catch (ProviderHttpException error) {
+            throw new IllegalStateException(apiErrorMessage(kind, error));
         }
         throw new IllegalArgumentException("مزود API غير مدعوم.");
     }
@@ -286,11 +306,75 @@ public class LocalMailPlugin extends Plugin {
         StringBuilder content = new StringBuilder();
         if (stream != null) try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) { String line; while ((line = reader.readLine()) != null) content.append(line); }
         connection.disconnect();
-        if (status < 200 || status >= 300) throw new IllegalStateException("HTTP " + status + (content.length() == 0 ? "" : ": " + content.substring(0, Math.min(500, content.length()))));
+        if (status < 200 || status >= 300) throw new ProviderHttpException(status, content.toString());
         return content.length() == 0 ? new JSONObject() : new JSONObject(content.toString());
     }
 
     private JSONObject headers(String name, String value) throws Exception { JSONObject headers = new JSONObject(); headers.put(name, value); return headers; }
+
+    private String apiErrorMessage(String kind, ProviderHttpException error) {
+        String provider = kind.equals("resend") ? "Resend" : "Postmark";
+        String response = error.response.toLowerCase(Locale.ROOT);
+        if (error.status == 401 || response.contains("invalid api key") || response.contains("invalid token")) return "مفتاح " + provider + " غير صحيح أو مُلغى.";
+        if (error.status == 429) return "وصل حساب " + provider + " إلى حد الطلبات. حاول لاحقًا.";
+        if (kind.equals("resend") && response.contains("only send testing emails")) return "onboarding@resend.dev يرسل للاختبار إلى بريد حساب Resend فقط.";
+        if (kind.equals("resend") && (response.contains("domain is not verified") || response.contains("domain not verified") || (response.contains("domain") && response.contains("verify")))) return "بريد الإرسال غير موثّق في Resend. استخدم onboarding@resend.dev للاختبار أو نطاقًا موثّقًا.";
+        if (error.status == 403) return "مفتاح " + provider + " لا يملك صلاحية الإرسال.";
+        if (error.status >= 500) return "خدمة " + provider + " غير متاحة الآن. حاول لاحقًا.";
+        return "رفض " + provider + " طلب الإرسال (" + error.status + ").";
+    }
+
+    private String smtpErrorMessage(JSONObject mailbox, Exception error) {
+        String host = mailbox.optString("host", "").toLowerCase(Locale.ROOT);
+        String details = errorDetails(error).toLowerCase(Locale.ROOT);
+        boolean authentication = hasCause(error, AuthenticationFailedException.class) || details.contains("authentication") || details.contains("username and password not accepted") || details.contains("535");
+        if (authentication && host.contains("gmail")) return "رفض Gmail تسجيل الدخول. فعّل التحقق بخطوتين واستخدم كلمة مرور تطبيق من 16 حرفًا، لا كلمة مرور Gmail.";
+        if (authentication && (host.contains("office365") || host.contains("outlook"))) return "رفض Microsoft تسجيل الدخول. تحقق من كلمة المرور ومن تفعيل SMTP AUTH للحساب.";
+        if (authentication) return "رفض خادم SMTP اسم المستخدم أو كلمة المرور.";
+        if (hasCause(error, UnknownHostException.class)) return "عنوان خادم SMTP غير صحيح أو لا يوجد اتصال بالإنترنت.";
+        if (hasCause(error, SocketTimeoutException.class)) return "انتهت مهلة الاتصال بخادم SMTP.";
+        if (hasCause(error, ConnectException.class) || details.contains("couldn't connect") || details.contains("could not connect")) return "تعذر الاتصال بخادم SMTP. تحقق من الخادم والمنفذ.";
+        if (hasCause(error, SSLHandshakeException.class) || details.contains("ssl handshake")) return "فشل اتصال SSL الآمن. تحقق من المنفذ وإعداد SSL.";
+        return "رفض خادم SMTP الاتصال أو الإرسال.";
+    }
+
+    private boolean hasCause(Throwable error, Class<?> type) {
+        Throwable current = error;
+        for (int depth = 0; current != null && depth < 12; depth++) {
+            if (type.isInstance(current)) return true;
+            Throwable next = current.getCause();
+            if (next == null && current instanceof MessagingException) next = ((MessagingException) current).getNextException();
+            if (next == current) break;
+            current = next;
+        }
+        return false;
+    }
+
+    private String errorDetails(Throwable error) {
+        StringBuilder result = new StringBuilder();
+        Throwable current = error;
+        for (int depth = 0; current != null && depth < 12; depth++) {
+            if (current.getMessage() != null) result.append(' ').append(current.getMessage());
+            Throwable next = current.getCause();
+            if (next == null && current instanceof MessagingException) next = ((MessagingException) current).getNextException();
+            if (next == current) break;
+            current = next;
+        }
+        return result.toString();
+    }
+
+    private boolean isPublicMailboxDomain(String email) {
+        int separator = email.lastIndexOf('@');
+        if (separator < 0) return true;
+        String domain = email.substring(separator + 1).toLowerCase(Locale.ROOT);
+        return domain.equals("gmail.com") || domain.equals("googlemail.com") || domain.equals("outlook.com") || domain.equals("hotmail.com") || domain.equals("live.com") || domain.equals("yahoo.com") || domain.equals("icloud.com") || domain.equals("aol.com") || domain.equals("proton.me") || domain.equals("protonmail.com");
+    }
+
+    private static final class ProviderHttpException extends Exception {
+        private final int status;
+        private final String response;
+        private ProviderHttpException(int status, String response) { super("HTTP " + status); this.status = status; this.response = response == null ? "" : response; }
+    }
 
     private synchronized JSONObject requireMailbox(String id) throws Exception {
         JSONArray mailboxes = readEncryptedArray(MAILBOXES);
@@ -367,5 +451,9 @@ public class LocalMailPlugin extends Plugin {
     private String today() { return new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date()); }
     private String isoNow() { SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US); format.setTimeZone(TimeZone.getTimeZone("UTC")); return format.format(new Date()); }
     private String clean(String value) { return value == null ? "" : value.trim(); }
-    private String safeMessage(Exception error) { return error.getMessage() == null || error.getMessage().trim().isEmpty() ? error.getClass().getSimpleName() : error.getMessage(); }
+    private String safeMessage(Exception error) {
+        String message = error.getMessage() == null || error.getMessage().trim().isEmpty() ? error.getClass().getSimpleName() : error.getMessage().trim();
+        message = message.replaceAll("re_[A-Za-z0-9_-]+", "[مفتاح مخفي]");
+        return message.length() > 300 ? message.substring(0, 300) : message;
+    }
 }
