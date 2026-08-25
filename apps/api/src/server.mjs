@@ -49,6 +49,10 @@ app.use('/v1/insights',createInsightRouter({db,auth}));
 app.use('/v1/inbox',createInboxRouter({db,auth}));
 app.use('/v1/public',createPublicRouter({db}));
 app.use('/v1/webhooks',createWebhookRouter({db,config}));
+
+// Production web UI is bundled into the API image so the free second service can be reserved for the queue worker.
+if (process.env.WEB_DIST_DIR) app.use(express.static(process.env.WEB_DIST_DIR));
+
 app.use((_req, res) => res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Route not found' } }));
 app.use((error, req, res, _next) => {
   console.error(JSON.stringify({ level: 'error', requestId: req.requestId, code: error.code, message: error.message }));
