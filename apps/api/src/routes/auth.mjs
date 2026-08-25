@@ -7,6 +7,13 @@ import { requireEmail, requireText } from '../core/validation.mjs';
 export function createAuthRouter({ db, auth }) {
   const router = Router();
 
+  router.get('/setup-status', async (_req, res, next) => {
+    try {
+      const { rows } = await db.query('select count(*)::int count from users');
+      res.json({ ok: true, data: { registrationOpen: rows[0].count === 0 } });
+    } catch (error) { next(error); }
+  });
+
   router.post('/register', async (req, res, next) => {
     const client = await db.connect();
     try {
@@ -15,7 +22,10 @@ export function createAuthRouter({ db, auth }) {
       const workspaceName = requireText(req.body.workspaceName || 'جريد سوفت', 'workspaceName', { max: 120 });
       const displayName = requireText(req.body.displayName || email.split('@')[0], 'displayName', { max: 120 });
       await client.query('begin');
-      if ((await client.query('select 1 from users where email=$1 limit 1', [email])).rowCount) throw new AppError('EMAIL_EXISTS', 'Email is already registered', 409);
+      // Serialize first-owner creation so two concurrent requests cannot create two accounts.
+      await client.query('select pg_advisory_xact_lock(74012026)');
+      const existingCount = (await client.query('select count(*)::int count from users')).rows[0].count;
+      if (existingCount > 0) throw new AppError('REGISTRATION_CLOSED', 'Owner account already exists', 403);
       const tenant = (await client.query('insert into tenants (name) values ($1) returning id,name', [workspaceName])).rows[0];
       const user = (await client.query(`insert into users (tenant_id,email,role,display_name,password_hash) values ($1,$2,'owner',$3,$4)
         returning id,tenant_id,email,display_name,role`, [tenant.id, email, displayName, passwordHash])).rows[0];
