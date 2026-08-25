@@ -1,0 +1,20 @@
+FROM node:22-alpine
+
+WORKDIR /app
+COPY apps/api/package.json apps/api/package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY apps/api/src ./src
+COPY apps/api/migrations ./migrations
+COPY apps/web ./public
+
+# Browser production uses the real API adapter. Android continues using its native/local adapter.
+RUN sed -i 's#</head>#  <link rel="stylesheet" href="production.css">\n</head>#' ./public/index.html \
+ && sed -i 's#<script src="app.js"></script>#<script src="app.js"></script>\n<script src="production.js"></script>#' ./public/index.html
+
+ENV NODE_ENV=production
+ENV API_PORT=3001
+ENV WEB_DIST_DIR=/app/public
+EXPOSE 3001
+
+CMD ["sh", "-c", "node src/migrate.mjs && node src/server.mjs"]
