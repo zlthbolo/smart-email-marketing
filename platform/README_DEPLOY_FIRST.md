@@ -1,0 +1,1 @@
+IMPORTANT: Do not manually create the Northflank free project before linking GitHub and importing `platform/northflank.template.json`. The template creates the project itself, and the free plan allows only one managed-cloud free project.
