@@ -1,0 +1,9 @@
+.server-locked{visibility:hidden}
+.server-auth{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:#f5f6f8;font-family:inherit;direction:rtl}
+.server-auth-card{width:min(430px,100%);background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.08)}
+.server-auth-logo{font-size:24px;font-weight:800;margin-bottom:24px}.server-auth-logo span{opacity:.55}
+.server-auth-card h1{margin:0 0 8px;font-size:26px}.server-auth-card p{margin:0 0 20px;color:#64748b;line-height:1.7}
+.server-auth-card form{display:grid;gap:12px}.server-auth-card input{width:100%;box-sizing:border-box;padding:13px 14px;border:1px solid #d8dee8;border-radius:10px;font:inherit}
+.server-auth-card button{padding:13px 16px;border:0;border-radius:10px;font:inherit;font-weight:700;cursor:pointer}
+.server-auth-error{margin:0 0 14px;padding:10px 12px;border-radius:9px;background:#fff1f2;color:#9f1239;font-size:14px}
+.user{cursor:pointer}
