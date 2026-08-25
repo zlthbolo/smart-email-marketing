@@ -1,0 +1,1 @@
+Before importing platform/northflank.template.json, link the Northflank team to the GitHub account that can access zlthbolo/smart-email-marketing. Do not manually create API, worker, or Redis resources first; the template creates them.
