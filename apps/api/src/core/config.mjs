@@ -1,15 +1,27 @@
+import { createHash } from 'node:crypto';
+
 const required = [
   'DATABASE_URL',
   'REDIS_URL',
-  'CREDENTIAL_ENCRYPTION_KEY_BASE64',
   'WEBHOOK_SIGNING_SECRET'
 ];
+
+function resolveCredentialKey(env) {
+  if (env.CREDENTIAL_ENCRYPTION_SECRET?.trim()) {
+    return createHash('sha256').update(env.CREDENTIAL_ENCRYPTION_SECRET.trim(), 'utf8').digest();
+  }
+  if (env.CREDENTIAL_ENCRYPTION_KEY_BASE64?.trim()) {
+    const key = Buffer.from(env.CREDENTIAL_ENCRYPTION_KEY_BASE64, 'base64');
+    if (key.length !== 32) throw new Error('CREDENTIAL_ENCRYPTION_KEY_BASE64 must decode to exactly 32 bytes');
+    return key;
+  }
+  throw new Error('Missing required environment variable: CREDENTIAL_ENCRYPTION_SECRET');
+}
 
 export function loadConfig(env = process.env) {
   const missing = required.filter((key) => !env[key]?.trim());
   if (missing.length) throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-  const key = Buffer.from(env.CREDENTIAL_ENCRYPTION_KEY_BASE64, 'base64');
-  if (key.length !== 32) throw new Error('CREDENTIAL_ENCRYPTION_KEY_BASE64 must decode to exactly 32 bytes');
+  const key = resolveCredentialKey(env);
   const port = Number(env.API_PORT || 3001);
   const northflankHost = String(env.NF_HOSTS || '').split(',').map((value) => value.trim()).find(Boolean);
   const publicApiUrl = String(env.PUBLIC_API_URL || (northflankHost ? `https://${northflankHost}` : `http://localhost:${port}`)).replace(/\/$/, '');
