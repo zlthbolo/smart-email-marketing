@@ -1,0 +1,259 @@
+{
+  "$schema": "https://api.northflank.com/v1/schemas/template",
+  "apiVersion": "v1.2",
+  "name": "Jareed Soft",
+  "description": "Private always-on Jareed Soft API and email worker with Redis and external Neon Postgres.",
+  "arguments": {
+    "DATABASE_URL": "",
+    "CREDENTIAL_ENCRYPTION_KEY_BASE64": "",
+    "WEBHOOK_SIGNING_SECRET": "",
+    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_CLIENT_SECRET": "",
+    "MICROSOFT_CLIENT_ID": "",
+    "MICROSOFT_CLIENT_SECRET": "",
+    "OPENAI_API_KEY": ""
+  },
+  "options": {
+    "autorun": false,
+    "concurrencyPolicy": "queue"
+  },
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "Project",
+          "ref": "project",
+          "spec": {
+            "name": "Jareed Soft",
+            "region": "us-west",
+            "networking": {
+              "allowedIngressProjects": []
+            }
+          }
+        },
+        {
+          "kind": "Workflow",
+          "spec": {
+            "type": "sequential",
+            "context": {
+              "projectId": "${refs.project.id}"
+            },
+            "steps": [
+              {
+                "kind": "Addon",
+                "ref": "redis",
+                "spec": {
+                  "externalAccessEnabled": false,
+                  "type": "redis",
+                  "billing": {
+                    "replicas": 1,
+                    "storage": 4096,
+                    "storageClass": "nvme",
+                    "deploymentPlan": "nf-compute-10"
+                  },
+                  "tlsEnabled": false,
+                  "name": "Jareed Redis",
+                  "version": "latest"
+                }
+              },
+              {
+                "kind": "Condition",
+                "spec": {
+                  "kind": "Addon",
+                  "spec": {
+                    "data": {
+                      "addonId": "${refs.redis.id}"
+                    },
+                    "type": "running"
+                  }
+                }
+              },
+              {
+                "kind": "SecretGroup",
+                "ref": "runtime-secrets",
+                "spec": {
+                  "type": "secret",
+                  "secretType": "environment-arguments",
+                  "priority": 10,
+                  "secrets": {
+                    "variables": {
+                      "NODE_ENV": "production",
+                      "API_PORT": "3001",
+                      "DATABASE_URL": "${args.DATABASE_URL}",
+                      "CREDENTIAL_ENCRYPTION_KEY_BASE64": "${args.CREDENTIAL_ENCRYPTION_KEY_BASE64}",
+                      "WEBHOOK_SIGNING_SECRET": "${args.WEBHOOK_SIGNING_SECRET}",
+                      "GOOGLE_CLIENT_ID": "${args.GOOGLE_CLIENT_ID}",
+                      "GOOGLE_CLIENT_SECRET": "${args.GOOGLE_CLIENT_SECRET}",
+                      "MICROSOFT_CLIENT_ID": "${args.MICROSOFT_CLIENT_ID}",
+                      "MICROSOFT_CLIENT_SECRET": "${args.MICROSOFT_CLIENT_SECRET}",
+                      "MICROSOFT_TENANT": "common",
+                      "OPENAI_API_KEY": "${args.OPENAI_API_KEY}",
+                      "OPENAI_RESEARCH_MODEL": "o3-deep-research",
+                      "LOG_LEVEL": "info"
+                    },
+                    "files": {}
+                  },
+                  "addonDependencies": [
+                    {
+                      "addonId": "${refs.redis.id}",
+                      "keys": [
+                        {
+                          "keyName": "REDIS_MASTER_URL",
+                          "aliases": ["REDIS_URL"]
+                        }
+                      ]
+                    }
+                  ],
+                  "name": "Jareed Runtime Secrets",
+                  "restrictions": {
+                    "restricted": false,
+                    "nfObjects": [],
+                    "tags": []
+                  }
+                }
+              },
+              {
+                "kind": "CombinedService",
+                "ref": "api",
+                "spec": {
+                  "deployment": {
+                    "instances": 1,
+                    "storage": {
+                      "ephemeralStorage": {
+                        "storageSize": 1024
+                      },
+                      "shmSize": 64
+                    },
+                    "docker": {
+                      "configType": "default"
+                    }
+                  },
+                  "runtimeEnvironment": {},
+                  "runtimeFiles": {},
+                  "buildArguments": {},
+                  "buildFiles": {},
+                  "billing": {
+                    "deploymentPlan": "nf-compute-10",
+                    "buildPlan": "nf-compute-400-16"
+                  },
+                  "name": "Jareed API",
+                  "vcsData": {
+                    "projectType": "github",
+                    "projectUrl": "https://github.com/zlthbolo/smart-email-marketing",
+                    "projectBranch": "codex/jareed-foundation"
+                  },
+                  "ports": [
+                    {
+                      "internalPort": 3001,
+                      "protocol": "HTTP",
+                      "name": "api",
+                      "public": true,
+                      "domains": [],
+                      "security": {
+                        "policies": [],
+                        "credentials": []
+                      },
+                      "disableNfDomain": false
+                    }
+                  ],
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "kaniko",
+                      "useCache": true,
+                      "dockerWorkDir": "/",
+                      "dockerFilePath": "/platform/Dockerfile.production",
+                      "buildkit": {
+                        "useInternalCache": true,
+                        "internalCacheStorage": 16384
+                      }
+                    }
+                  },
+                  "disabledCI": false,
+                  "buildConfiguration": {
+                    "pathIgnoreRules": [
+                      "docs/**",
+                      "apps/mobile/**"
+                    ],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": true
+                  }
+                }
+              },
+              {
+                "kind": "Condition",
+                "spec": {
+                  "kind": "Service",
+                  "spec": {
+                    "data": {
+                      "serviceId": "${refs.api.id}"
+                    },
+                    "type": "running"
+                  }
+                }
+              },
+              {
+                "kind": "CombinedService",
+                "ref": "worker",
+                "spec": {
+                  "deployment": {
+                    "instances": 1,
+                    "storage": {
+                      "ephemeralStorage": {
+                        "storageSize": 1024
+                      },
+                      "shmSize": 64
+                    },
+                    "docker": {
+                      "configType": "customCommand",
+                      "customCommand": "node src/worker.mjs"
+                    }
+                  },
+                  "runtimeEnvironment": {
+                    "PUBLIC_API_URL": "https://${refs.api.ports.0.dns}"
+                  },
+                  "runtimeFiles": {},
+                  "buildArguments": {},
+                  "buildFiles": {},
+                  "billing": {
+                    "deploymentPlan": "nf-compute-10",
+                    "buildPlan": "nf-compute-400-16"
+                  },
+                  "name": "Jareed Worker",
+                  "vcsData": {
+                    "projectType": "github",
+                    "projectUrl": "https://github.com/zlthbolo/smart-email-marketing",
+                    "projectBranch": "codex/jareed-foundation"
+                  },
+                  "ports": [],
+                  "buildSettings": {
+                    "dockerfile": {
+                      "buildEngine": "kaniko",
+                      "useCache": true,
+                      "dockerWorkDir": "/",
+                      "dockerFilePath": "/platform/Dockerfile.production",
+                      "buildkit": {
+                        "useInternalCache": true,
+                        "internalCacheStorage": 16384
+                      }
+                    }
+                  },
+                  "disabledCI": false,
+                  "buildConfiguration": {
+                    "pathIgnoreRules": [
+                      "docs/**",
+                      "apps/mobile/**"
+                    ],
+                    "isAllowList": false,
+                    "ciIgnoreFlagsEnabled": true
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
