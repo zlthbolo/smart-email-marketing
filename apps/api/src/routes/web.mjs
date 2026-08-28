@@ -111,7 +111,7 @@ function credentialsFromBody(body, existing = {}) {
   };
 }
 
-async function dashboardData({ db, emailQueue, redis, tenantId, from, to }) {
+async function dashboardData({ db, emailQueue, tenantId, from, to }) {
   const end = to && !Number.isNaN(new Date(to).getTime()) ? new Date(to) : new Date();
   const start = from && !Number.isNaN(new Date(from).getTime()) ? new Date(from) : new Date(end.getTime() - 29 * 86400000);
   const [campaigns, metrics, accounts, scheduled, series, queueCounts, heartbeat] = await Promise.all([
@@ -142,7 +142,7 @@ async function dashboardData({ db, emailQueue, redis, tenantId, from, to }) {
       left join scheduled_messages sm on sm.tenant_id=$1 and sm.created_at::date<=d::date
       group by d order by d`, [tenantId, start.toISOString(), end.toISOString()]),
     emailQueue.getJobCounts('waiting', 'active', 'delayed', 'failed'),
-    redis.client.get('worker:email-delivery:heartbeat')
+    emailQueue.getWorkerHeartbeat()
   ]);
   const queueSize = Number(queueCounts.waiting || 0) + Number(queueCounts.active || 0) + Number(queueCounts.delayed || 0);
   const workerFresh = heartbeat && Date.now() - new Date(heartbeat).getTime() < 45_000;
@@ -159,7 +159,7 @@ async function dashboardData({ db, emailQueue, redis, tenantId, from, to }) {
   };
 }
 
-export function createWebRouter({ db, auth, config, providerResolver, emailQueue, redis }) {
+export function createWebRouter({ db, auth, config, providerResolver, emailQueue }) {
   const router = Router();
   router.use(auth);
 
@@ -170,11 +170,11 @@ export function createWebRouter({ db, auth, config, providerResolver, emailQueue
   };
 
   router.get('/dashboard', async (req, res, next) => {
-    try { res.json({ ok: true, data: await dashboardData({ db, emailQueue, redis, tenantId: req.auth.tenant_id, from: req.query.from, to: req.query.to }) }); }
+    try { res.json({ ok: true, data: await dashboardData({ db, emailQueue, tenantId: req.auth.tenant_id, from: req.query.from, to: req.query.to }) }); }
     catch (error) { next(error); }
   });
   router.get('/analytics/overview', async (req, res, next) => {
-    try { res.json({ ok: true, data: await dashboardData({ db, emailQueue, redis, tenantId: req.auth.tenant_id, from: req.query.from, to: req.query.to }) }); }
+    try { res.json({ ok: true, data: await dashboardData({ db, emailQueue, tenantId: req.auth.tenant_id, from: req.query.from, to: req.query.to }) }); }
     catch (error) { next(error); }
   });
   router.get('/analytics/senders', async (req, res, next) => {
@@ -402,7 +402,7 @@ export function createWebRouter({ db, auth, config, providerResolver, emailQueue
     try {
       const dbStarted = Date.now(); await db.query('select 1'); const dbLatency = Date.now() - dbStarted;
       const queueCounts = await emailQueue.getJobCounts('waiting', 'active', 'delayed', 'failed');
-      const heartbeat = await redis.client.get('worker:email-delivery:heartbeat');
+      const heartbeat = await emailQueue.getWorkerHeartbeat();
       const workerFresh = heartbeat && Date.now() - new Date(heartbeat).getTime() < 45_000;
       res.json({ ok: true, data: { database: { status: 'HEALTHY', latencyMs: dbLatency }, queue: { status: 'HEALTHY', size: Number(queueCounts.waiting || 0) + Number(queueCounts.active || 0) + Number(queueCounts.delayed || 0) }, worker: { status: workerFresh ? 'HEALTHY' : 'OFFLINE', lastHeartbeatAt: heartbeat }, lastBackgroundJob: null, version: '0.3.0' } });
     } catch (error) { next(error); }

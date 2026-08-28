@@ -40,36 +40,6 @@
             },
             "steps": [
               {
-                "kind": "Addon",
-                "ref": "redis",
-                "spec": {
-                  "externalAccessEnabled": false,
-                  "type": "redis",
-                  "billing": {
-                    "replicas": 1,
-                    "storage": 4096,
-                    "storageClass": "nvme",
-                    "deploymentPlan": "nf-compute-10"
-                  },
-                  "tlsEnabled": false,
-                  "name": "Jareed Redis",
-                  "version": "latest"
-                },
-                "updateMode": "put"
-              },
-              {
-                "kind": "Condition",
-                "spec": {
-                  "kind": "Addon",
-                  "spec": {
-                    "data": {
-                      "addonId": "${refs.redis.id}"
-                    },
-                    "type": "running"
-                  }
-                }
-              },
-              {
                 "kind": "SecretGroup",
                 "ref": "runtime-secrets",
                 "spec": {
@@ -97,19 +67,7 @@
                     },
                     "files": {}
                   },
-                  "addonDependencies": [
-                    {
-                      "addonId": "${refs.redis.id}",
-                      "keys": [
-                        {
-                          "keyName": "REDIS_MASTER_URL",
-                          "aliases": [
-                            "REDIS_URL"
-                          ]
-                        }
-                      ]
-                    }
-                  ],
+                  "addonDependencies": [],
                   "name": "Jareed Runtime Secrets",
                   "restrictions": {
                     "restricted": false,

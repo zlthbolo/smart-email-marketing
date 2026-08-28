@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 
 const required = [
   'DATABASE_URL',
-  'REDIS_URL',
   'WEBHOOK_SIGNING_SECRET'
 ];
 
@@ -31,7 +30,6 @@ export function loadConfig(env = process.env) {
     port,
     webOrigin,
     databaseUrl: env.DATABASE_URL,
-    redisUrl: env.REDIS_URL,
     credentialKey: key,
     webhookSigningSecret: env.WEBHOOK_SIGNING_SECRET,
     publicApiUrl,
