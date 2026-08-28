@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
 import { loadConfig } from './core/config.mjs';
 import { createDatabase } from './core/db.mjs';
 import { createRedis } from './core/redis.mjs';
@@ -18,6 +19,7 @@ import { createKnowledgeRouter } from './routes/knowledge.mjs';
 import { createWebhookRouter } from './routes/webhooks.mjs';
 import { createInsightRouter } from './routes/insights.mjs';
 import { createInboxRouter } from './routes/inbox.mjs';
+import { createWebRouter } from './routes/web.mjs';
 import { createProviderResolver } from './providers/resolver.mjs';
 import { createEmailQueue } from './queue/email-queue.mjs';
 
@@ -40,6 +42,7 @@ app.use((req, res, next) => { req.requestId = req.header('x-request-id') || rand
 app.get('/v1/health', createHealthHandler({ db, redis, providers: [{name:'gmail'},{name:'microsoft_graph'},{name:'smtp'},{name:'resend'},{name:'postmark'},{name:'test_sink'}] }));
 app.get('/v1', (_req, res) => res.json({ ok: true, service: 'jareed-api', version: '0.2.0' }));
 app.use('/v1/auth',createAuthRouter({db,auth}));
+app.use('/v1',createWebRouter({db,auth,config,providerResolver,emailQueue,redis}));
 app.use('/v1/oauth',createOAuthRouter({db,config,auth}));
 app.use('/v1/mailboxes',createMailboxRouter({db,config,auth,providerResolver}));
 app.use('/v1/contacts',createContactRouter({db,auth}));
@@ -47,11 +50,18 @@ app.use('/v1/campaigns',createCampaignRouter({db,auth,emailQueue,config}));
 app.use('/v1/knowledge',createKnowledgeRouter({db,auth,config}));
 app.use('/v1/insights',createInsightRouter({db,auth}));
 app.use('/v1/inbox',createInboxRouter({db,auth}));
-app.use('/v1/public',createPublicRouter({db}));
+app.use('/v1/public',createPublicRouter({db,config}));
 app.use('/v1/webhooks',createWebhookRouter({db,config}));
 
 // Production web UI is bundled into the API image so the free second service can be reserved for the queue worker.
-if (process.env.WEB_DIST_DIR) app.use(express.static(process.env.WEB_DIST_DIR));
+if (process.env.WEB_DIST_DIR) {
+  const webDist = resolve(process.env.WEB_DIST_DIR);
+  app.use(express.static(webDist));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/v1/') && req.accepts('html')) return res.sendFile(resolve(webDist, 'index.html'));
+    next();
+  });
+}
 
 app.use((_req, res) => res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Route not found' } }));
 app.use((error, req, res, _next) => {

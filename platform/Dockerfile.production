@@ -1,20 +1,22 @@
-FROM node:22-alpine
+FROM node:22-alpine AS web-build
+WORKDIR /web
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend ./
+ENV VITE_API_BASE_URL=/v1
+RUN npm run build
 
+FROM node:22-alpine
 WORKDIR /app
 COPY apps/api/package.json apps/api/package-lock.json ./
 RUN npm ci --omit=dev
-
 COPY apps/api/src ./src
 COPY apps/api/migrations ./migrations
-COPY apps/web ./public
-
-# Browser production uses the real API adapter. Android continues using its native/local adapter.
-RUN sed -i 's#</head>#  <link rel="stylesheet" href="production.css">\n</head>#' ./public/index.html \
- && sed -i 's#<script src="app.js"></script>#<script src="app.js"></script>\n<script src="production.js"></script>#' ./public/index.html
+COPY --from=web-build /web/dist ./public
 
 ENV NODE_ENV=production
 ENV API_PORT=3001
 ENV WEB_DIST_DIR=/app/public
 EXPOSE 3001
 
-CMD ["sh", "-c", "node src/migrate.mjs && node src/server.mjs"]
+CMD ["sh", "-c", "node src/migrate.mjs && if [ -n \"$OWNER_EMAIL\" ] && [ -n \"$OWNER_PASSWORD\" ]; then node src/bootstrap-owner.mjs; fi && node src/server.mjs"]

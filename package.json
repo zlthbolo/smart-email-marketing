@@ -2,10 +2,11 @@
   "name": "jareed-soft",
   "private": true,
   "version": "0.2.0",
-  "workspaces": ["apps/api", "apps/mobile"],
+  "workspaces": ["apps/api", "apps/mobile", "frontend"],
   "scripts": {
     "test": "npm --workspace apps/api test",
-    "test:web": "node --test apps/web/test/*.test.mjs",
+    "test:web": "npm --workspace jareed-soft-frontend test",
+    "build:web": "npm --workspace jareed-soft-frontend run build",
     "start": "npm --workspace apps/api start",
     "android:sync": "npm --workspace @jareed/mobile run sync",
     "android:build": "npm --workspace @jareed/mobile run build:debug"

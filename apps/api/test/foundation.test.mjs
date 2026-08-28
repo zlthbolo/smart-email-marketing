@@ -22,6 +22,7 @@ test('provider success requires upstream message id',()=>{assert.throws(()=>acce
 test('only transient HTTP statuses are retryable',()=>{assert.equal(isRetryableStatus(429),true);assert.equal(isRetryableStatus(503),true);assert.equal(isRetryableStatus(401),false);assert.equal(isRetryableStatus(422),false)});
 test('validation normalizes email and blocks header injection',()=>{assert.equal(requireEmail(' USER@Example.COM '),'user@example.com');assert.throws(()=>requireText('hello\r\nBcc: victim@example.com','subject'),/forbidden line breaks/)});
 test('templates escape contact values and remove active content',()=>{assert.equal(renderTemplate('Hi {{first_name}}',{first_name:'<Admin>'}),'Hi &lt;Admin&gt;');const clean=sanitizeEmailHtml('<script>alert(1)</script><a href="javascript:alert(1)" onclick="x()">x</a>');assert.equal(clean.includes('<script'),false);assert.equal(clean.includes('onclick'),false);assert.equal(clean.includes('javascript:'),false)});
+test('templates support arbitrary imported custom fields',()=>{assert.equal(renderTemplate('مرحبًا {{company}}',{company:'A & B'}),'مرحبًا A &amp; B')});
 test('password hashing verifies only the correct password',async()=>{const hash=await hashPassword('very-long-password');assert.equal(await verifyPassword('very-long-password',hash),true);assert.equal(await verifyPassword('wrong-password',hash),false)});
 test('Resend adapter requires a real provider message id',async()=>{
   let captured;

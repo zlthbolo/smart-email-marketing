@@ -2,6 +2,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import { AppError } from './errors.mjs';
 
 const tokenHash = (token) => createHash('sha256').update(token).digest('hex');
+export const SESSION_COOKIE = 'jareed_session';
+
+function cookieToken(header = '') {
+  const entry = header.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`));
+  return entry ? decodeURIComponent(entry.slice(SESSION_COOKIE.length + 1)) : '';
+}
 
 export async function createSession(db, userId, days = 30) {
   const token = randomBytes(32).toString('base64url');
@@ -13,7 +19,7 @@ export async function createSession(db, userId, days = 30) {
 export function createAuthMiddleware(db) {
   return async (req, _res, next) => {
     try {
-      const token = req.header('authorization')?.replace(/^Bearer\s+/i, '');
+      const token = req.header('authorization')?.replace(/^Bearer\s+/i, '') || cookieToken(req.header('cookie'));
       if (!token) throw new AppError('AUTH_REQUIRED', 'Authentication required', 401);
       const { rows } = await db.query(`select s.id session_id, s.expires_at, u.id user_id, u.tenant_id, u.email, u.display_name, u.role
         from sessions s join users u on u.id=s.user_id where s.token_hash=$1 and s.expires_at>now()`, [tokenHash(token)]);
