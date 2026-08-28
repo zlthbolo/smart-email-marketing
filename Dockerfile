@@ -15,8 +15,10 @@ COPY apps/api/migrations ./migrations
 COPY --from=web-build /web/dist ./public
 
 ENV NODE_ENV=production
-ENV API_PORT=3001
+ENV API_PORT=8080
 ENV WEB_DIST_DIR=/app/public
-EXPOSE 3001
+EXPOSE 8080
 
+# production.mjs migrates the schema, bootstraps the owner idempotently, and
+# supervises both the HTTP server and PostgreSQL-backed delivery worker.
 CMD ["node", "src/production.mjs"]

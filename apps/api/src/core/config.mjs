@@ -21,7 +21,9 @@ export function loadConfig(env = process.env) {
   const missing = required.filter((key) => !env[key]?.trim());
   if (missing.length) throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   const key = resolveCredentialKey(env);
-  const port = Number(env.API_PORT || 3001);
+  // Most container platforms inject PORT. Keep API_PORT as the explicit
+  // project override used by Northflank and local development.
+  const port = Number(env.PORT || env.API_PORT || 3001);
   const northflankHost = String(env.NF_HOSTS || '').split(',').map((value) => value.trim()).find(Boolean);
   const publicApiUrl = String(env.PUBLIC_API_URL || (northflankHost ? `https://${northflankHost}` : `http://localhost:${port}`)).replace(/\/$/, '');
   const webOrigin = String(env.WEB_ORIGIN || publicApiUrl).replace(/\/$/, '');
