@@ -9,7 +9,10 @@
     "GOOGLE_CLIENT_SECRET": "",
     "MICROSOFT_CLIENT_ID": "",
     "MICROSOFT_CLIENT_SECRET": "",
-    "OPENAI_API_KEY": ""
+    "OPENAI_API_KEY": "",
+    "OWNER_EMAIL": "",
+    "OWNER_PASSWORD": "",
+    "OWNER_DISPLAY_NAME": "المالك"
   },
   "spec": {
     "kind": "Workflow",
@@ -87,7 +90,10 @@
                       "MICROSOFT_TENANT": "common",
                       "OPENAI_API_KEY": "${args.OPENAI_API_KEY}",
                       "OPENAI_RESEARCH_MODEL": "o3-deep-research",
-                      "LOG_LEVEL": "info"
+                      "LOG_LEVEL": "info",
+                      "OWNER_EMAIL": "${args.OWNER_EMAIL}",
+                      "OWNER_PASSWORD": "${args.OWNER_PASSWORD}",
+                      "OWNER_DISPLAY_NAME": "${args.OWNER_DISPLAY_NAME}"
                     },
                     "files": {}
                   },

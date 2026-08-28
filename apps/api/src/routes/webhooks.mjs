@@ -25,13 +25,33 @@ export function createWebhookRouter({ db, config }) {
       const provider = String(req.body.provider || ''); const eventType = String(req.body.eventType || '');
       if (!allowedProviders.has(provider) || !allowedEvents.has(eventType)) throw new AppError('VALIDATION_ERROR', 'Provider or event type is unsupported', 400);
       await client.query('begin');
-      const recipient = (await client.query(`select r.id,r.email,c.tenant_id,c.mailbox_id from campaign_recipients r join campaigns c on c.id=r.campaign_id join mailboxes m on m.id=c.mailbox_id where r.provider_message_id=$1 and m.provider=$2 for update`, [providerMessageId, provider])).rows[0];
+      const recipient = (await client.query(`select r.id,r.email,c.tenant_id,sm.mailbox_id,sm.id scheduled_message_id
+        from scheduled_messages sm join campaign_recipients r on r.id=sm.campaign_recipient_id
+        join campaigns c on c.id=r.campaign_id join mailboxes m on m.id=sm.mailbox_id
+        where sm.provider_message_id=$1 and m.provider=$2 for update of sm,r`, [providerMessageId, provider])).rows[0];
       if (!recipient) throw new AppError('RECIPIENT_NOT_FOUND', 'No recipient matches this provider acknowledgement', 404);
       const inserted = await client.query(`insert into provider_events (tenant_id,provider,provider_event_id,event_type,payload) values ($1,$2,$3,$4,$5) on conflict (provider,provider_event_id) do nothing returning id`, [recipient.tenant_id, provider, providerEventId, eventType, JSON.stringify(req.body)]);
       if (!inserted.rowCount) { await client.query('rollback'); return res.json({ ok: true, data: { duplicate: true } }); }
       const columns = { delivered: ['delivered', 'delivered_at'], opened: ['opened', 'opened_at'], clicked: ['clicked', 'clicked_at'], replied: ['replied', 'replied_at'], bounced: ['bounced', 'bounced_at'], complained: ['complained', null] };
       const [status, timestamp] = columns[eventType];
-      if (timestamp) await client.query(`update campaign_recipients set status=$2,${timestamp}=coalesce(${timestamp},now()),updated_at=now() where id=$1`, [recipient.id, status]);
+      await client.query(`update scheduled_messages set status=case
+        when $2='bounced' then 'BOUNCED'
+        when $2='complained' then 'CANCELLED'
+        when $2='replied' and status not in ('BOUNCED','CANCELLED') then 'REPLIED'
+        when $2='clicked' and status in ('SENT','DELIVERED','OPENED') then 'CLICKED'
+        when $2='opened' and status in ('SENT','DELIVERED') then 'OPENED'
+        when $2='delivered' and status='SENT' then 'DELIVERED'
+        else status end,updated_at=now() where id=$1`, [recipient.scheduled_message_id, eventType]);
+      if (timestamp) await client.query(`update campaign_recipients set
+        status=case
+          when $2='bounced' then 'bounced'::delivery_status
+          when $2='replied' and status not in ('bounced','complained') then 'replied'::delivery_status
+          when $2='clicked' and status in ('accepted','delivered','opened') then 'clicked'::delivery_status
+          when $2='opened' and status in ('accepted','delivered') then 'opened'::delivery_status
+          when $2='delivered' and status='accepted' then 'delivered'::delivery_status
+          else status
+        end,
+        ${timestamp}=coalesce(${timestamp},now()),updated_at=now() where id=$1`, [recipient.id, status]);
       else await client.query('update campaign_recipients set status=$2,updated_at=now() where id=$1', [recipient.id, status]);
       if (eventType === 'bounced' || eventType === 'complained') await client.query(`insert into suppressions (tenant_id,email_hash,reason,source) values ($1,$2,$3,'provider_webhook') on conflict (tenant_id,email_hash) do update set reason=excluded.reason,source=excluded.source`, [recipient.tenant_id, emailSuppressionHash(recipient.email), eventType === 'bounced' ? 'hard_bounce' : 'complaint']);
       if (eventType === 'replied') {
@@ -41,7 +61,9 @@ export function createWebhookRouter({ db, config }) {
           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,coalesce($13::timestamptz,now()),$14)
           on conflict (provider,provider_event_id) do nothing`, [recipient.tenant_id, recipient.id, recipient.mailbox_id, provider, providerEventId, providerMessageId, recipient.email, reply.subject, reply.textBody, reply.htmlBody, classification.intent, classification.requiresHuman, reply.receivedAt, JSON.stringify(req.body)]);
         if (classification.intent === 'unsubscribe') await client.query(`insert into suppressions (tenant_id,email_hash,reason,source) values ($1,$2,'unsubscribe','reply_intent') on conflict (tenant_id,email_hash) do update set reason=excluded.reason,source=excluded.source`, [recipient.tenant_id, emailSuppressionHash(recipient.email)]);
+        await client.query("update scheduled_messages set status='CANCELLED',last_error_code='SEQUENCE_STOPPED_ON_REPLY',updated_at=now() where campaign_recipient_id=$1 and status in ('SCHEDULED','QUEUED')", [recipient.id]);
       }
+      if (eventType === 'bounced' || eventType === 'complained') await client.query("update scheduled_messages set status='CANCELLED',last_error_code='SEQUENCE_STOPPED_ON_SUPPRESSION',updated_at=now() where campaign_recipient_id=$1 and status in ('SCHEDULED','QUEUED')", [recipient.id]);
       await client.query('insert into delivery_events (tenant_id,campaign_recipient_id,event_type,provider,provider_message_id,detail) values ($1,$2,$3,$4,$5,$6)', [recipient.tenant_id, recipient.id, eventType, provider, providerMessageId, JSON.stringify(req.body.detail || {})]);
       await client.query('update provider_events set processed_at=now() where id=$1', [inserted.rows[0].id]);
       await client.query('commit');
