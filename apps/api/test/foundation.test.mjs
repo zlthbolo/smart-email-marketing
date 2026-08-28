@@ -9,6 +9,13 @@ import { requireEmail, requireText } from '../src/core/validation.mjs';
 import { hashPassword, verifyPassword } from '../src/core/passwords.mjs';
 import { buildOperatorActions, evaluateCampaignReadiness } from '../src/core/readiness.mjs';
 import { classifyReplyIntent, extractInboundReply } from '../src/core/replies.mjs';
+import { loadConfig } from '../src/core/config.mjs';
+
+test('container PORT takes precedence over the project default',()=>{
+  const config=loadConfig({DATABASE_URL:'postgres://example',WEBHOOK_SIGNING_SECRET:'signing-secret',CREDENTIAL_ENCRYPTION_SECRET:'encryption-secret',PORT:'8080',API_PORT:'3001'});
+  assert.equal(config.port,8080);
+  assert.equal(config.publicApiUrl,'http://localhost:8080');
+});
 
 test('jitter is deterministic and bounded', () => {
   const input={campaignId:'c1',recipientId:'r1',maxJitterMs:120000,secret:'secret'};
