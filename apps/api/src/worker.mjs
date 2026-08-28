@@ -1,22 +1,53 @@
-import { Worker } from 'bullmq';
+import { randomUUID } from 'node:crypto';
 import { loadConfig } from './core/config.mjs';
 import { createDatabase } from './core/db.mjs';
-import { createRedis } from './core/redis.mjs';
 import { emailSuppressionHash } from './core/crypto.mjs';
 import { renderTemplate, sanitizeEmailHtml } from './core/templates.mjs';
 import { createProviderResolver } from './providers/resolver.mjs';
 import { releaseSenderReservation, reserveCampaignSender } from './core/sender-rotation.mjs';
 import { addClickTracking } from './core/tracking.mjs';
+import { computeRetrySchedule } from './queue/email-queue.mjs';
 
 const config = loadConfig();
 const db = createDatabase(config.databaseUrl);
-const redis = createRedis(config.redisUrl);
-await redis.connect();
 const resolveProvider = createProviderResolver({ db, config });
-const heartbeat = async () => redis.client.set('worker:email-delivery:heartbeat', new Date().toISOString(), 'EX', 60);
+const workerId = `email-worker-${randomUUID()}`;
+const heartbeat = async () => db.query(`insert into worker_heartbeats (worker_name,heartbeat_at,detail)
+  values ('email-delivery',now(),$1) on conflict (worker_name) do update
+  set heartbeat_at=excluded.heartbeat_at,detail=excluded.detail`, [JSON.stringify({ workerId })]);
 await heartbeat();
 const heartbeatTimer = setInterval(() => heartbeat().catch((error) => console.error(JSON.stringify({ level: 'error', event: 'worker_heartbeat_failed', message: error.message }))), 15_000);
 heartbeatTimer.unref();
+
+await db.query(`update scheduled_messages set status='UNKNOWN',last_error_code='WORKER_LEASE_EXPIRED',
+  last_error_detail='Worker stopped while delivery outcome was uncertain; message was not retried to prevent duplicates.',
+  finished_at=now(),lease_owner=null,lease_expires_at=null,updated_at=now()
+  where status='SENDING' and coalesce(lease_expires_at,started_at + interval '15 minutes') < now()`);
+
+async function claimNextMessage() {
+  const client = await db.connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query(`select id,campaign_id,tenant_id,retry_count,max_attempts,retry_base_delay_ms
+      from scheduled_messages where status='QUEUED' and scheduled_at<=now()
+      order by scheduled_at,created_at for update skip locked limit 1`);
+    const row = rows[0];
+    if (!row) { await client.query('commit'); return null; }
+    await client.query(`update scheduled_messages set status='SENDING',started_at=now(),lease_owner=$2,
+      lease_expires_at=now()+interval '15 minutes',updated_at=now() where id=$1`, [row.id, workerId]);
+    await client.query('commit');
+    return {
+      id: row.id,
+      data: { campaignId: row.campaign_id, scheduledMessageId: row.id, tenantId: row.tenant_id },
+      attemptsMade: Number(row.retry_count || 0),
+      maxAttempts: Number(row.max_attempts || 4),
+      retryBaseDelayMs: Number(row.retry_base_delay_ms || 30_000)
+    };
+  } catch (error) {
+    await client.query('rollback').catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
 
 async function recordEvent(context, type, detail = {}) {
   await db.query(`insert into delivery_events
@@ -40,7 +71,7 @@ async function finishLog(id, fields) {
     fields.errorDetail || null]);
 }
 
-const worker = new Worker('email-delivery', async (job) => {
+async function processDelivery(job) {
   const { campaignId, scheduledMessageId, tenantId } = job.data;
   if (!scheduledMessageId) return { status: 'ignored_legacy_job', retryable: false };
   const { rows } = await db.query(`select
@@ -57,9 +88,9 @@ const worker = new Worker('email-delivery', async (job) => {
     where sm.id=$2 and sm.campaign_id=$1 and sm.tenant_id=$3`, [campaignId, scheduledMessageId, tenantId]);
   const context = { ...rows[0], tenant_id: tenantId };
   if (!context.scheduled_message_id) throw new Error('DELIVERY_CONTEXT_NOT_FOUND');
-  if (context.message_status !== 'QUEUED') return { status: 'already_processed', messageStatus: context.message_status };
+  if (context.message_status !== 'SENDING') return { status: 'already_processed', messageStatus: context.message_status };
   if (!['scheduled', 'running'].includes(context.campaign_status)) {
-    if (context.campaign_status === 'paused') await db.query("update scheduled_messages set status='SCHEDULED',updated_at=now() where id=$1 and status='QUEUED'", [scheduledMessageId]);
+    if (context.campaign_status === 'paused') await db.query("update scheduled_messages set status='SCHEDULED',lease_owner=null,lease_expires_at=null,updated_at=now() where id=$1 and status='SENDING'", [scheduledMessageId]);
     return { status: 'blocked', reason: 'CAMPAIGN_NOT_ACTIVE' };
   }
 
@@ -75,12 +106,12 @@ const worker = new Worker('email-delivery', async (job) => {
   try {
     mailbox = await reserveCampaignSender(db, { campaignId, tenantId });
   } catch (error) {
-    await db.query("update scheduled_messages set status='FAILED',last_error_code=$2,last_error_detail=$3,retry_count=$4,finished_at=now(),updated_at=now() where id=$1", [scheduledMessageId, error.code || 'NO_SENDER_CAPACITY', error.message, job.attemptsMade]);
+    await db.query("update scheduled_messages set status='FAILED',last_error_code=$2,last_error_detail=$3,retry_count=$4,finished_at=now(),lease_owner=null,lease_expires_at=null,updated_at=now() where id=$1", [scheduledMessageId, error.code || 'NO_SENDER_CAPACITY', error.message, job.attemptsMade]);
     await recordEvent(context, 'blocked', { reason: error.code || 'NO_SENDER_CAPACITY', message: error.message });
     return { status: 'blocked', reason: error.code || 'NO_SENDER_CAPACITY' };
   }
 
-  await db.query("update scheduled_messages set mailbox_id=$2,status='SENDING',started_at=now(),retry_count=$3,updated_at=now() where id=$1", [scheduledMessageId, mailbox.id, job.attemptsMade]);
+  await db.query("update scheduled_messages set mailbox_id=$2,retry_count=$3,updated_at=now() where id=$1 and status='SENDING'", [scheduledMessageId, mailbox.id, job.attemptsMade]);
   await db.query('update campaign_recipients set mailbox_id=$2,updated_at=now() where id=$1', [context.recipient_id, mailbox.id]);
   await db.query("update campaigns set status='running',updated_at=now() where id=$1 and status='scheduled'", [campaignId]);
 
@@ -106,7 +137,7 @@ const worker = new Worker('email-delivery', async (job) => {
   try {
     result = await (await resolveProvider(mailbox)).send(message);
   } catch (error) {
-    await db.query("update scheduled_messages set status='UNKNOWN',last_error_code='AMBIGUOUS_PROVIDER_OUTCOME',last_error_detail=$2,finished_at=now(),updated_at=now() where id=$1", [scheduledMessageId, error.message]);
+    await db.query("update scheduled_messages set status='UNKNOWN',last_error_code='AMBIGUOUS_PROVIDER_OUTCOME',last_error_detail=$2,finished_at=now(),lease_owner=null,lease_expires_at=null,updated_at=now() where id=$1", [scheduledMessageId, error.message]);
     await db.query("update campaign_recipients set status='unknown',last_error_code='AMBIGUOUS_PROVIDER_OUTCOME',last_error_detail=$2,updated_at=now() where id=$1", [context.recipient_id, error.message]);
     await db.query(`insert into outbound_messages (tenant_id,campaign_recipient_id,scheduled_message_id,mailbox_id,from_email,to_email,subject,text_body,html_body,status)
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'UNKNOWN') on conflict (scheduled_message_id) do nothing`, [tenantId, context.recipient_id, scheduledMessageId, mailbox.id, mailbox.email, context.recipient_email, message.subject, message.text, message.html]).catch(() => {});
@@ -118,18 +149,24 @@ const worker = new Worker('email-delivery', async (job) => {
   if (result.status !== 'accepted') {
     await releaseSenderReservation(db, mailbox.id);
     const retryable = Boolean(result.error?.retryable);
-    await db.query('update scheduled_messages set status=$2,last_error_code=$3,last_error_detail=$4,retry_count=$5,updated_at=now() where id=$1', [scheduledMessageId, retryable ? 'QUEUED' : 'FAILED', result.error?.code || 'PROVIDER_REJECTED', result.error?.message || 'Provider rejected the message', job.attemptsMade]);
-    await finishLog(logId, { status: retryable ? 'RETRYING' : 'FAILED', providerResponse: result.response,
+    const retry = computeRetrySchedule(job);
+    const nextAttempt = retry.nextAttempt;
+    const willRetry = retryable && retry.willRetry;
+    const retryDelayMs = retry.retryDelayMs;
+    await db.query(`update scheduled_messages set status=$2,last_error_code=$3,last_error_detail=$4,retry_count=$5,
+      scheduled_at=case when $2='QUEUED' then now()+($6*interval '1 millisecond') else scheduled_at end,
+      finished_at=case when $2='FAILED' then now() else null end,lease_owner=null,lease_expires_at=null,updated_at=now()
+      where id=$1`, [scheduledMessageId, willRetry ? 'QUEUED' : 'FAILED', result.error?.code || 'PROVIDER_REJECTED', result.error?.message || 'Provider rejected the message', nextAttempt, retryDelayMs]);
+    await finishLog(logId, { status: willRetry ? 'RETRYING' : 'FAILED', providerResponse: result.response,
       errorCode: result.error?.code || 'PROVIDER_REJECTED', errorDetail: result.error?.message });
     await recordEvent({ ...context, provider: mailbox.provider }, 'provider_rejected', { ...result, provider: mailbox.provider });
-    if (retryable) throw new Error(`${result.error.code}: ${result.error.message}`);
-    return result;
+    return { ...result, retryable: willRetry, retryAt: willRetry ? new Date(Date.now() + retryDelayMs).toISOString() : null };
   }
 
   const client = await db.connect();
   try {
     await client.query('begin');
-    await client.query("update scheduled_messages set status='SENT',provider_message_id=$2,finished_at=now(),last_error_code=null,last_error_detail=null,updated_at=now() where id=$1", [scheduledMessageId, result.providerMessageId]);
+    await client.query("update scheduled_messages set status='SENT',provider_message_id=$2,finished_at=now(),last_error_code=null,last_error_detail=null,lease_owner=null,lease_expires_at=null,updated_at=now() where id=$1", [scheduledMessageId, result.providerMessageId]);
     await client.query("update campaign_recipients set status='accepted',provider_message_id=$2,accepted_at=coalesce(accepted_at,now()),last_error_code=null,last_error_detail=null,updated_at=now() where id=$1", [context.recipient_id, result.providerMessageId]);
     await client.query(`insert into outbound_messages
       (tenant_id,campaign_recipient_id,scheduled_message_id,mailbox_id,provider_message_id,from_email,to_email,subject,text_body,html_body,status)
@@ -142,7 +179,7 @@ const worker = new Worker('email-delivery', async (job) => {
     await finishLog(logId, { status: 'SENT', providerMessageId: result.providerMessageId, providerResponse: result.response });
   } catch (error) {
     await client.query('rollback').catch(() => {});
-    await db.query("update scheduled_messages set status='UNKNOWN',provider_message_id=$2,last_error_code='ACK_PERSISTENCE_FAILED',last_error_detail=$3,finished_at=now(),updated_at=now() where id=$1", [scheduledMessageId, result.providerMessageId, error.message]).catch(() => {});
+    await db.query("update scheduled_messages set status='UNKNOWN',provider_message_id=$2,last_error_code='ACK_PERSISTENCE_FAILED',last_error_detail=$3,finished_at=now(),lease_owner=null,lease_expires_at=null,updated_at=now() where id=$1", [scheduledMessageId, result.providerMessageId, error.message]).catch(() => {});
     await db.query("update campaign_recipients set status='unknown',provider_message_id=$2,last_error_code='ACK_PERSISTENCE_FAILED',last_error_detail=$3,updated_at=now() where id=$1", [context.recipient_id, result.providerMessageId, error.message]).catch(() => {});
     await finishLog(logId, { status: 'UNKNOWN', providerMessageId: result.providerMessageId, providerResponse: result.response, errorCode: 'ACK_PERSISTENCE_FAILED', errorDetail: error.message }).catch(() => {});
     return { status: 'unknown', providerMessageId: result.providerMessageId, retryable: false };
@@ -151,22 +188,47 @@ const worker = new Worker('email-delivery', async (job) => {
   const remaining = (await db.query("select count(*)::int count from scheduled_messages where campaign_id=$1 and status in ('SCHEDULED','QUEUED','SENDING')", [campaignId])).rows[0].count;
   if (remaining === 0) await db.query("update campaigns set status='completed',updated_at=now() where id=$1", [campaignId]);
   return result;
-}, { connection: redis.client, concurrency: 10 });
+}
 
-worker.on('failed', async (job, error) => {
-  console.error(JSON.stringify({ level: 'error', event: 'delivery_failed', jobId: job?.id, message: error.message, attemptsMade: job?.attemptsMade }));
-  if (job?.data?.scheduledMessageId && job.attemptsMade >= Number(job.opts.attempts || 1)) await db.query(
-    "update scheduled_messages set status='FAILED',last_error_code='RETRIES_EXHAUSTED',last_error_detail=$2,finished_at=now(),updated_at=now() where id=$1 and status in ('QUEUED','SENDING')",
-    [job.data.scheduledMessageId, error.message]).catch(() => {});
-});
+let stopping = false;
+const active = new Set();
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-worker.on('completed', (job, result) => console.log(JSON.stringify({ level: 'info', event: 'delivery_completed', jobId: job.id, result })));
+async function workerLoop() {
+  while (!stopping) {
+    let claimed = false;
+    while (!stopping && active.size < 10) {
+      const job = await claimNextMessage();
+      if (!job) break;
+      claimed = true;
+      const task = processDelivery(job)
+        .then((result) => console.log(JSON.stringify({ level: 'info', event: 'delivery_completed', jobId: job.id, result })))
+        .catch(async (error) => {
+          console.error(JSON.stringify({ level: 'error', event: 'delivery_failed', jobId: job.id, message: error.message, attemptsMade: job.attemptsMade }));
+          await db.query(`update scheduled_messages set status='UNKNOWN',last_error_code='WORKER_PROCESSING_FAILED',
+            last_error_detail=$2,finished_at=now(),lease_owner=null,lease_expires_at=null,updated_at=now()
+            where id=$1 and status='SENDING'`, [job.id, error.message]).catch(() => {});
+        })
+        .finally(() => active.delete(task));
+      active.add(task);
+    }
+    if (!claimed && active.size === 0) await wait(1000);
+    else await Promise.race([...active, wait(250)]);
+  }
+}
 
 async function shutdown(signal) {
   clearInterval(heartbeatTimer);
+  stopping = true;
   console.log(JSON.stringify({ level: 'info', event: 'worker_shutdown', signal }));
-  await Promise.allSettled([worker.close(), db.close(), redis.close()]);
+  await Promise.allSettled([...active]);
+  await db.close();
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+workerLoop().catch(async (error) => {
+  console.error(JSON.stringify({ level: 'fatal', event: 'worker_loop_failed', message: error.message }));
+  await shutdown('WORKER_LOOP_FAILED');
+});

@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { loadConfig } from './core/config.mjs';
 import { createDatabase } from './core/db.mjs';
-import { createRedis } from './core/redis.mjs';
 import { errorPayload } from './core/errors.mjs';
 import { createHealthHandler } from './routes/health.mjs';
 import { createAuthMiddleware } from './core/sessions.mjs';
@@ -25,11 +24,9 @@ import { createEmailQueue } from './queue/email-queue.mjs';
 
 const config = loadConfig();
 const db = createDatabase(config.databaseUrl);
-const redis = createRedis(config.redisUrl);
-await redis.connect();
 const auth=createAuthMiddleware(db);
 const providerResolver=createProviderResolver({db,config});
-const emailQueue=createEmailQueue(redis.client);
+const emailQueue=createEmailQueue(db);
 
 const app = express();
 app.disable('x-powered-by');
@@ -39,10 +36,10 @@ app.use(cors({ origin: (origin,callback) => callback(null,!origin||allowedOrigin
 app.use(express.json({ limit: '1mb', verify: (req, _res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 app.use((req, res, next) => { req.requestId = req.header('x-request-id') || randomUUID(); res.setHeader('x-request-id', req.requestId); next(); });
 
-app.get('/v1/health', createHealthHandler({ db, redis, providers: [{name:'gmail'},{name:'microsoft_graph'},{name:'smtp'},{name:'resend'},{name:'postmark'},{name:'test_sink'}] }));
+app.get('/v1/health', createHealthHandler({ db, providers: [{name:'gmail'},{name:'microsoft_graph'},{name:'smtp'},{name:'resend'},{name:'postmark'},{name:'test_sink'}] }));
 app.get('/v1', (_req, res) => res.json({ ok: true, service: 'jareed-api', version: '0.2.0' }));
 app.use('/v1/auth',createAuthRouter({db,auth}));
-app.use('/v1',createWebRouter({db,auth,config,providerResolver,emailQueue,redis}));
+app.use('/v1',createWebRouter({db,auth,config,providerResolver,emailQueue}));
 app.use('/v1/oauth',createOAuthRouter({db,config,auth}));
 app.use('/v1/mailboxes',createMailboxRouter({db,config,auth,providerResolver}));
 app.use('/v1/contacts',createContactRouter({db,auth}));
@@ -70,6 +67,6 @@ app.use((error, req, res, _next) => {
 });
 
 const server = app.listen(config.port, () => console.log(JSON.stringify({ level: 'info', event: 'server_started', port: config.port })));
-async function shutdown(signal) { console.log(JSON.stringify({ level: 'info', event: 'shutdown', signal })); server.close(); await Promise.allSettled([emailQueue.close(),db.close(), redis.close()]); process.exit(0); }
+async function shutdown(signal) { console.log(JSON.stringify({ level: 'info', event: 'shutdown', signal })); server.close(); await Promise.allSettled([emailQueue.close(),db.close()]); process.exit(0); }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

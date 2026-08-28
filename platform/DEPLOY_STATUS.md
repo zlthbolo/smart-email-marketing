@@ -10,7 +10,7 @@
 - [x] Web tests pass
 - [x] Northflank template added
 - [x] Northflank free region set to `europe-west`
-- [x] Template includes API + Worker + Redis + external Neon
+- [x] Template includes API + Worker + PostgreSQL queue on external Neon
 - [x] Encryption/signing secrets generated at deployment
 - [ ] Northflank team GitHub integration linked by account owner
 - [ ] Northflank template imported and deployed
