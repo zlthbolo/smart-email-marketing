@@ -17,6 +17,12 @@ test('container PORT takes precedence over the project default',()=>{
   assert.equal(config.publicApiUrl,'http://localhost:8080');
 });
 
+test('Render public URL configures tracking and OAuth callbacks',()=>{
+  const config=loadConfig({DATABASE_URL:'postgres://example',WEBHOOK_SIGNING_SECRET:'signing-secret',CREDENTIAL_ENCRYPTION_SECRET:'encryption-secret',RENDER_EXTERNAL_URL:'https://jareed-soft.onrender.com/'});
+  assert.equal(config.publicApiUrl,'https://jareed-soft.onrender.com');
+  assert.equal(config.google.redirectUri,'https://jareed-soft.onrender.com/v1/oauth/google/callback');
+});
+
 test('jitter is deterministic and bounded', () => {
   const input={campaignId:'c1',recipientId:'r1',maxJitterMs:120000,secret:'secret'};
   const first=deterministicJitterMs(input); assert.equal(first,deterministicJitterMs(input)); assert.ok(first>=0&&first<=120000);
