@@ -25,7 +25,7 @@ export function loadConfig(env = process.env) {
   // project override used by Northflank and local development.
   const port = Number(env.PORT || env.API_PORT || 3001);
   const northflankHost = String(env.NF_HOSTS || '').split(',').map((value) => value.trim()).find(Boolean);
-  const publicApiUrl = String(env.PUBLIC_API_URL || (northflankHost ? `https://${northflankHost}` : `http://localhost:${port}`)).replace(/\/$/, '');
+  const publicApiUrl = String(env.PUBLIC_API_URL || env.RENDER_EXTERNAL_URL || (northflankHost ? `https://${northflankHost}` : `http://localhost:${port}`)).replace(/\/$/, '');
   const webOrigin = String(env.WEB_ORIGIN || publicApiUrl).replace(/\/$/, '');
   return Object.freeze({
     nodeEnv: env.NODE_ENV || 'development',
